@@ -1,0 +1,72 @@
+{
+  "density": {
+    "density_context": "isothermal_aged",
+    "reference_density_g_cm3": null,
+    "temperature_k": 300.0
+  },
+  "engine": {
+    "device": "cuda",
+    "dt_ps": 0.00025,
+    "lammps_command": [
+      "/absolute/path/to/site_launcher"
+    ],
+    "name": "mace_mh1",
+    "pdamp_ps": 1.0,
+    "runtime_dependencies": [],
+    "tdamp_ps": 0.1
+  },
+  "initialize": {
+    "mace_transition_npt_ps": 50.0,
+    "mace_transition_pressure_bar": 1.01325,
+    "min_etol": 1e-08,
+    "min_ftol_eV_A": 1e-10,
+    "min_maxeval": 20000,
+    "min_maxiter": 2000,
+    "minimize": true,
+    "nvt_ps": 1.0,
+    "temperature_k": 305.0
+  },
+  "npt": {
+    "equilibration_ps": 5.0,
+    "pressure_bar": 1.01325,
+    "production_ps": 25.0,
+    "ramp_ps": 0.1,
+    "restart_interval_ps": 0.1,
+    "sample_interval_ps": 0.01,
+    "thermo_interval_ps": 0.01
+  },
+  "output_root": "/absolute/path/to/private_results",
+  "quality_tier": "pilot",
+  "replicas": [
+    {
+      "replica_id": "pilot_replica_001",
+      "seed": 260816
+    }
+  ],
+  "reuse_eligible": false,
+  "run_class": "PILOT",
+  "scheduler": {
+    "qsub_args": [],
+    "submit_mode": "print"
+  },
+  "schema_version": "thermal_schema_v1",
+  "scientific_eligible": false,
+  "system": {
+    "element_list": [
+      "C",
+      "H"
+    ],
+    "input_data": "/absolute/path/to/initial.data",
+    "mace_dtype": "float32",
+    "mace_elements": [
+      "C",
+      "H"
+    ],
+    "mace_head": "omol",
+    "mace_model": "/absolute/path/to/model-mliap_lammps.pt",
+    "polymer_id": "SELECT_FROM_CATALOG",
+    "snapshot_class": "CLASSICAL_EQ2",
+    "snapshot_metadata": "/absolute/path/to/initial.data.snapshot.json"
+  },
+  "thermal_mode": "density"
+}

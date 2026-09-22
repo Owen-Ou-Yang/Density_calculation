@@ -1,0 +1,267 @@
+{
+  "experimental_values_included": false,
+  "files": [
+    {
+      "bytes": 255,
+      "path": ".gitignore",
+      "sha256": "bd1385ea2c3fafead470933fbb5b9fbbdcc3df30bff53f5ce785e618ea193eed"
+    },
+    {
+      "bytes": 929,
+      "path": "LICENSE_NOTICE.md",
+      "sha256": "df471a6a40387bc9d5a0f22575ef9ad59eb1aa88a883258b5c2e495e2558927d"
+    },
+    {
+      "bytes": 9028,
+      "path": "README.md",
+      "sha256": "a1e256a93bfca228a94fab563a66e3d53b874ae2498ff7ce57bb77651927cb47"
+    },
+    {
+      "bytes": 3853,
+      "path": "VALIDATION.md",
+      "sha256": "297d954408f1c28f7ad8381fa03ca52141dec447f3922558510ecacf6b60a87b"
+    },
+    {
+      "bytes": 78,
+      "path": "adapters/__init__.py",
+      "sha256": "aaf92e67398d55d09a58e4d7529694d0ed0644e025279bb7812ca2d8718802ca"
+    },
+    {
+      "bytes": 8884,
+      "path": "adapters/mace_density.py",
+      "sha256": "268dc6204543b2dcea2f663d83267a09ee750cb5bc6b915d80c116f7f1907c06"
+    },
+    {
+      "bytes": 33190,
+      "path": "adapters/radonpy_prepare.py",
+      "sha256": "f8a93284ade34c7e716d46a14f7551d9035b760bed4644c5f0338dea400390bf"
+    },
+    {
+      "bytes": 1688,
+      "path": "configs/protocol.json",
+      "sha256": "c5076458dd054ee489805346de76ab54d9d9b6bdaf1c72c0de8a46ea7febef6c"
+    },
+    {
+      "bytes": 3003,
+      "path": "docs/COLLABORATION.md",
+      "sha256": "2259c8f7645d37b17ed3f54ad3b5028d2b8f43ae078617eda21e0c0b181aee2d"
+    },
+    {
+      "bytes": 1699,
+      "path": "docs/DATA_BOUNDARY.md",
+      "sha256": "5af1c971ed5d33c3b701d3bb4fc815aad4a84f2191f466eaacd2f8d12eec7fa3"
+    },
+    {
+      "bytes": 6427,
+      "path": "docs/ENVIRONMENT.md",
+      "sha256": "1c8c6d8b6cb6984b528c5ffa8f5d58afab4c5a3f07a28289018dc48d8c987bc1"
+    },
+    {
+      "bytes": 1179,
+      "path": "examples/crc_array.sh",
+      "sha256": "3e8729cde09ea869bf3257728090f7f7ae964e2b6f6510cb0f3a0b01b89d7033"
+    },
+    {
+      "bytes": 761,
+      "path": "examples/slurm_array.sh",
+      "sha256": "c733d5341c644b1166684a7f80e2e4bad54b9827405d3780dbdae3a952b95005"
+    },
+    {
+      "bytes": 738,
+      "path": "inputs/catalog_identity.json",
+      "sha256": "2d4d906e0f1acca606924992cbd4457ba24d7f8f7cfc9a46d2084e6904adf087"
+    },
+    {
+      "bytes": 203617,
+      "path": "inputs/smiles.csv",
+      "sha256": "e7bb299e19f2d4b1d738c6b53e1b8abdf8445a7c21ca971b136c404685aea92a"
+    },
+    {
+      "bytes": 10113,
+      "path": "launchers/crc_intelmpi_3or4gpu.sh",
+      "sha256": "21c3ef02489c252c3f0429c9a0a384acd934ec56adebd4c644b98e7c27e454c8"
+    },
+    {
+      "bytes": 83,
+      "path": "polymer_batch/__init__.py",
+      "sha256": "57d226f07f88e41e14515b641e97c8e6a8e75e54f10dc433212428119181c3b1"
+    },
+    {
+      "bytes": 2889,
+      "path": "polymer_batch/catalog.py",
+      "sha256": "2c5bbfb868e66c0302f53954a8bedcc677699d6fdba5a6561968c091d29f8b0d"
+    },
+    {
+      "bytes": 21742,
+      "path": "polymer_batch/cli.py",
+      "sha256": "8a3753531e505592c0e47b4c216a69868108d574c6a3d6a5d16b84cc439dd1ea"
+    },
+    {
+      "bytes": 108,
+      "path": "requirements-analysis.txt",
+      "sha256": "1b4e52b4f5a653e9846edba12b7f68c09af417a7ae64958cb470fd4c5f7b6154"
+    },
+    {
+      "bytes": 43,
+      "path": "requirements-test.txt",
+      "sha256": "0e66dce1837ae021d1867a2bd66e0f3d1035b109e2cb3ce8bd914700d2a9a78e"
+    },
+    {
+      "bytes": 16826,
+      "path": "tests/test_batch_cli.py",
+      "sha256": "6232a1a4989493f748ab740e6c0edfef34ce629b78b68d3dcfcde9f04a673233"
+    },
+    {
+      "bytes": 6565,
+      "path": "tests/test_density_adapter.py",
+      "sha256": "7cde18956222971a79eff7f102498350ed677c2455df242dee75aa7bb0ee23b7"
+    },
+    {
+      "bytes": 26756,
+      "path": "tests/test_prepare_adapter.py",
+      "sha256": "886d12f959051f1fc5c07b0feeab8810ef8b383525893d1b47313d7eac10a5d8"
+    },
+    {
+      "bytes": 5133,
+      "path": "tests/test_site_tools.py",
+      "sha256": "cf99ebf1e9befb5d509b073a5e1c0969d11141f251d0aec13d52427831ec459a"
+    },
+    {
+      "bytes": 10680,
+      "path": "tests/test_thermal_process_runner.py",
+      "sha256": "259f2b344075f32bbf9b25afb90f07fe2512f7f150c853374974e238eb9097bc"
+    },
+    {
+      "bytes": 15813,
+      "path": "tests/test_thermal_ramp_input.py",
+      "sha256": "794419ed0c70a476d2319f50bb880ec2e541e7734f8f2c579e42b1ac9ea013a9"
+    },
+    {
+      "bytes": 1784,
+      "path": "thermal_properties/__init__.py",
+      "sha256": "b2360c9492e73af66786138b167545de8d7d66646369ce338f41c2a90f147bf3"
+    },
+    {
+      "bytes": 214,
+      "path": "thermal_properties/analysis/__init__.py",
+      "sha256": "d80b7d742eb0f0e343c82912d453e438cf2151960223f14f7fd36632c89e4de1"
+    },
+    {
+      "bytes": 14910,
+      "path": "thermal_properties/analysis/convergence.py",
+      "sha256": "85b248bc773ac002e8ac1e97e98f16c43114420483047c17f91c271e47506423"
+    },
+    {
+      "bytes": 32836,
+      "path": "thermal_properties/analysis/samples.py",
+      "sha256": "08a48890f8c5830a761b8cce4c4d12c7348ad8a4cb96527e39e5ed94b7c6ff2d"
+    },
+    {
+      "bytes": 169,
+      "path": "thermal_properties/cli.py",
+      "sha256": "d13e4486c00cf08db6c979bf8f8094b6c789f3ade57e6b4ad3801d0d00e380a0"
+    },
+    {
+      "bytes": 1058,
+      "path": "thermal_properties/config/density_qc_v1.json",
+      "sha256": "0c7985f7ea17242b5278ba0256f4dc6655cc818ae52bae59188dc750b20550c0"
+    },
+    {
+      "bytes": 792,
+      "path": "thermal_properties/config/mace_transition_qc_v1.json",
+      "sha256": "da8862c42cd55af5b507f2748d881a0fda4c42571891da697b3cf58059d06781"
+    },
+    {
+      "bytes": 1865,
+      "path": "thermal_properties/config/tg_fit_v1.json",
+      "sha256": "44d2b437a2b04582463bde68eab1556f4d751d24bcb4615aca7a3d76d614f52b"
+    },
+    {
+      "bytes": 15160,
+      "path": "thermal_properties/config.py",
+      "sha256": "6f972bdcd342296f4a32cffa947fc0069d5563b8d573f7125106ffe4b7944774"
+    },
+    {
+      "bytes": 17619,
+      "path": "thermal_properties/density_parent.py",
+      "sha256": "4b1f4744c7131d4155c9c4afce388b74f8ca03f2f9f0a0347fbf17ffc78f2cce"
+    },
+    {
+      "bytes": 4621,
+      "path": "thermal_properties/lammps/in.initialize_mace_mh1.lmp",
+      "sha256": "3b2e146c6771e7f498b58a37ff2aa1e5f61de15c41e06ba77735fb211c2c31f0"
+    },
+    {
+      "bytes": 5852,
+      "path": "thermal_properties/lammps/in.npt_stage_mace_mh1.lmp",
+      "sha256": "06a88a5eff4bfc7a8ac118f54649c07b8f09fffc85f9fa07d15fa0b5c6f84be3"
+    },
+    {
+      "bytes": 1326,
+      "path": "thermal_properties/lammps/mace_mh1_thermal_setup.mod",
+      "sha256": "6b3b8a89d95a2fa7f06a5566f740b3f9cf6ffe0b0460e1eda8caef6c6c7cf030"
+    },
+    {
+      "bytes": 1537,
+      "path": "thermal_properties/lammps/thermal_temperature.mod",
+      "sha256": "58d4c5565bdae8ca17c786bdbb869711cdbe5a6b8790b8b1f92e3f63fcbe18ac"
+    },
+    {
+      "bytes": 8746,
+      "path": "thermal_properties/planning.py",
+      "sha256": "4c86771de4a10f98e6a882b7f77a05f6e76c758c45ad83640e558da2105718b1"
+    },
+    {
+      "bytes": 20821,
+      "path": "thermal_properties/provenance.py",
+      "sha256": "f5bb5aadfc56fcefa567b245aedd1e5dd088b8c185d41439d576411972d6572e"
+    },
+    {
+      "bytes": 18315,
+      "path": "thermal_properties/reuse.py",
+      "sha256": "559e0bde08620b5a11c243ec507d0fb669c0ccca82f0ce8ab20dad1109507089"
+    },
+    {
+      "bytes": 9113,
+      "path": "thermal_properties/run_status.py",
+      "sha256": "f00fe644316b16164e31891be3655aed7e7d62041226d6d84087f4c2048fffd5"
+    },
+    {
+      "bytes": 212476,
+      "path": "thermal_properties/simulation.py",
+      "sha256": "aedb83931d278413f7b934a246e01dd4b753d14b98482bfa1adac1ec8a15dde9"
+    },
+    {
+      "bytes": 12490,
+      "path": "thermal_properties/snapshot_contract.py",
+      "sha256": "c2c3777733b7059e65420cf6640c6235aa4d7447404223d95fd3957f01cb3a77"
+    },
+    {
+      "bytes": 119660,
+      "path": "thermal_properties/submission_claim.py",
+      "sha256": "74c412419d9cc2807cf67a8c310c372419f5be342910a3c36f7a38e040b7f2d1"
+    },
+    {
+      "bytes": 3030,
+      "path": "tools/check_public_bundle.py",
+      "sha256": "e396dc7a809f1fc36ac6e4b583d691e49c82cd9c58541f5a52f5a3574ba2f572"
+    },
+    {
+      "bytes": 3727,
+      "path": "tools/configure_site.py",
+      "sha256": "c91b103026a2670f684e998b2dbb2c370d72015b8bc0fc1739bc22ebf2d02a5e"
+    },
+    {
+      "bytes": 1458,
+      "path": "tools/export_summary.py",
+      "sha256": "de85ab8001acc3ff68ca5de7643719846f56de6ce281d2dc37b18bf7d1d127da"
+    }
+  ],
+  "model_weights_included": false,
+  "prior_results_included": false,
+  "real_end_to_end_acceptance": "PENDING",
+  "revision": "bounded-equilibration-v2",
+  "schema_version": "public-smiles-compute-release/v1",
+  "smiles_count": 1691,
+  "starting_structures_included": false
+}

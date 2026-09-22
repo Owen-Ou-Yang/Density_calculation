@@ -1,0 +1,105 @@
+echo both
+units metal
+atom_style full
+atom_modify map yes
+newton on
+boundary p p p
+
+variable thermal_stage_id getenv THERMAL_STAGE_ID
+variable thermal_predecessor_restart getenv THERMAL_PREDECESSOR_RESTART
+variable thermal_dt_ps getenv THERMAL_DT_PS
+variable thermal_target_temp_k getenv THERMAL_TARGET_TEMP_K
+variable thermal_ramp_start_temp_k getenv THERMAL_RAMP_START_TEMP_K
+variable thermal_ramp_end_temp_k getenv THERMAL_RAMP_END_TEMP_K
+variable thermal_target_press_bar getenv THERMAL_TARGET_PRESS_BAR
+variable thermal_tdamp_ps getenv THERMAL_TDAMP_PS
+variable thermal_pdamp_ps getenv THERMAL_PDAMP_PS
+variable thermal_equil_steps getenv THERMAL_EQUIL_STEPS
+variable thermal_ramp_steps getenv THERMAL_RAMP_STEPS
+variable thermal_prod_steps getenv THERMAL_PROD_STEPS
+variable thermal_thermo_every_steps getenv THERMAL_THERMO_EVERY_STEPS
+variable thermal_sample_every_steps getenv THERMAL_SAMPLE_EVERY_STEPS
+variable thermal_restart_every_steps getenv THERMAL_RESTART_EVERY_STEPS
+variable thermal_equil_csv getenv THERMAL_EQUIL_CSV
+variable thermal_prod_csv getenv THERMAL_PROD_CSV
+variable thermal_equil_restart_root getenv THERMAL_EQUIL_RESTART_ROOT
+variable thermal_prod_restart_root getenv THERMAL_PROD_RESTART_ROOT
+variable thermal_preserve_equil_final getenv THERMAL_PRESERVE_EQUIL_FINAL
+variable thermal_lammps_log getenv THERMAL_LAMMPS_LOG
+
+# LAMMPS suppresses $ substitution inside parser-level quotes.  Runtime paths
+# are therefore expanded unquoted and must not contain whitespace.
+log ${thermal_lammps_log}
+print "THERMAL_PHASE=npt_state_point"
+print "THERMAL_STAGE_ID=${thermal_stage_id}"
+print "THERMAL_PREDECESSOR_RESTART=${thermal_predecessor_restart}"
+print "THERMAL_TARGET_TEMP_K=${thermal_target_temp_k}"
+print "THERMAL_RAMP_START_TEMP_K=${thermal_ramp_start_temp_k}"
+print "THERMAL_RAMP_END_TEMP_K=${thermal_ramp_end_temp_k}"
+print "THERMAL_RAMP_STEPS=${thermal_ramp_steps}"
+print "THERMAL_TARGET_PRESS_BAR=${thermal_target_press_bar}"
+print "THERMAL_DT_PS=${thermal_dt_ps}"
+print "THERMAL_EQUIL_STEPS=${thermal_equil_steps}"
+print "THERMAL_PROD_STEPS=${thermal_prod_steps}"
+print "THERMAL_PRESERVE_EQUIL_FINAL=${thermal_preserve_equil_final}"
+
+# A state point always continues from an explicit predecessor.  In particular,
+# it never creates or re-randomizes velocities.
+read_restart ${thermal_predecessor_restart}
+
+include mace_mh1_thermal_setup.mod
+include thermal_temperature.mod
+
+timestep ${thermal_dt_ps}
+
+thermo ${thermal_thermo_every_steps}
+thermo_style custom step time temp press density vol pe ke etotal enthalpy pxx pyy pzz pxy pxz pyz lx ly lz c_thermal_force_max
+thermo_modify temp thermal_temperature press thermal_pressure flush yes lost error norm no
+
+fix thermal_equil_csv_writer all print ${thermal_sample_every_steps} &
+  "${thermal_csv_step},${thermal_csv_time_ps},${thermal_csv_temp_k},${thermal_csv_press_bar},${thermal_csv_density_g_cm3},${thermal_csv_volume_a3},${thermal_csv_pe_ev},${thermal_csv_ke_ev},${thermal_csv_etotal_ev},${thermal_csv_enthalpy_ev},${thermal_csv_pxx_bar},${thermal_csv_pyy_bar},${thermal_csv_pzz_bar},${thermal_csv_pxy_bar},${thermal_csv_pxz_bar},${thermal_csv_pyz_bar},${thermal_csv_lx_a},${thermal_csv_ly_a},${thermal_csv_lz_a},${thermal_csv_fmax_ev_a},${thermal_csv_atom_count}" &
+  file ${thermal_equil_csv} screen no &
+  title "step,time_ps,temp_K,press_bar,density_g_cm3,volume_A3,pe_eV,ke_eV,etotal_eV,enthalpy_eV,pxx_bar,pyy_bar,pzz_bar,pxy_bar,pxz_bar,pyz_bar,lx_A,ly_A,lz_A,fmax_eV_A,atom_count"
+
+if "${thermal_restart_every_steps} > 0" then &
+  "restart ${thermal_restart_every_steps} ${thermal_equil_restart_root}"
+
+print "THERMAL_STAGE_SEGMENT=temperature_ramp"
+if "${thermal_ramp_steps} > 0" then &
+  "fix thermal_ramp_npt all npt temp ${thermal_ramp_start_temp_k} ${thermal_ramp_end_temp_k} ${thermal_tdamp_ps} iso ${thermal_target_press_bar} ${thermal_target_press_bar} ${thermal_pdamp_ps}" &
+  "fix_modify thermal_ramp_npt temp thermal_temperature press thermal_pressure" &
+  "run ${thermal_ramp_steps}" &
+  "unfix thermal_ramp_npt"
+
+# The constant target fix remains active from target equilibration through the
+# production plateau.  The preceding ramp fix is already removed, so exactly
+# one thermostat/barostat is active at any time.
+fix thermal_stage_npt all npt &
+  temp ${thermal_target_temp_k} ${thermal_target_temp_k} ${thermal_tdamp_ps} &
+  iso ${thermal_target_press_bar} ${thermal_target_press_bar} ${thermal_pdamp_ps}
+fix_modify thermal_stage_npt temp thermal_temperature press thermal_pressure
+
+print "THERMAL_STAGE_SEGMENT=equilibration"
+if "${thermal_equil_steps} > 0" then "run ${thermal_equil_steps}"
+
+restart 0
+unfix thermal_equil_csv_writer
+
+# `file` (not `append`) gives production its own canonical CSV.  Periodic
+# checkpoints also use a production-specific root.
+fix thermal_prod_csv_writer all print ${thermal_sample_every_steps} &
+  "${thermal_csv_step},${thermal_csv_time_ps},${thermal_csv_temp_k},${thermal_csv_press_bar},${thermal_csv_density_g_cm3},${thermal_csv_volume_a3},${thermal_csv_pe_ev},${thermal_csv_ke_ev},${thermal_csv_etotal_ev},${thermal_csv_enthalpy_ev},${thermal_csv_pxx_bar},${thermal_csv_pyy_bar},${thermal_csv_pzz_bar},${thermal_csv_pxy_bar},${thermal_csv_pxz_bar},${thermal_csv_pyz_bar},${thermal_csv_lx_a},${thermal_csv_ly_a},${thermal_csv_lz_a},${thermal_csv_fmax_ev_a},${thermal_csv_atom_count}" &
+  file ${thermal_prod_csv} screen no &
+  title "step,time_ps,temp_K,press_bar,density_g_cm3,volume_A3,pe_eV,ke_eV,etotal_eV,enthalpy_eV,pxx_bar,pyy_bar,pzz_bar,pxy_bar,pxz_bar,pyz_bar,lx_A,ly_A,lz_A,fmax_eV_A,atom_count"
+
+if "${thermal_restart_every_steps} > 0" then &
+  "restart ${thermal_restart_every_steps} ${thermal_prod_restart_root}"
+
+print "THERMAL_STAGE_SEGMENT=production"
+run ${thermal_prod_steps}
+
+restart 0
+unfix thermal_prod_csv_writer
+unfix thermal_stage_npt
+
+print "THERMAL_STAGE_COMPLETE=yes"

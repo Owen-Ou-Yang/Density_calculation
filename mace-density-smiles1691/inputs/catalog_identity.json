@@ -1,0 +1,23 @@
+{
+  "catalog_bytes": 203617,
+  "catalog_path": "inputs/smiles.csv",
+  "catalog_sha256": "e7bb299e19f2d4b1d738c6b53e1b8abdf8445a7c21ca971b136c404685aea92a",
+  "columns": [
+    "task_id",
+    "smiles",
+    "smiles_sha256"
+  ],
+  "encoding": "utf-8",
+  "order": "first appearance of each exact SMILES string",
+  "record_count": 1691,
+  "schema_version": "mace-density-smiles-catalog/v1",
+  "smiles_identity": "SHA-256 of the original string encoded as UTF-8",
+  "task_id_format": "S followed by a six-digit one-based catalog index",
+  "transformations": {
+    "chemical_canonicalization": false,
+    "exact_duplicate_removal": true,
+    "smiles_filtering": false,
+    "stereochemistry_changes": false,
+    "whitespace_trimming": false
+  }
+}

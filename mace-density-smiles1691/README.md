@@ -1,0 +1,183 @@
+# Polymer density compute collaboration: 1,691 original SMILES
+
+Code and an **unfiltered catalog of 1,691 exact SMILES strings**, selected from
+the owner's experimental-density catalog. **No experimental density values,
+old simulation results, initial structures or model weights are distributed.**
+This package computes density with an existing MACE-MH-1 / omol / float32
+potential; it does not train a model.
+
+We welcome compute collaborators. One shared task list makes it possible to
+divide the work across people, machines or scheduler arrays without editing
+1,691 input files. Configure your site's installed tools once, then run the
+whole list or an assigned subset. Return the resulting records privately.
+
+## Identity and coverage
+
+`inputs/smiles.csv` has exactly three columns:
+
+| Column | Meaning |
+|---|---|
+| `task_id` | Stable catalog index `S000001` through `S001691` |
+| `smiles` | Exact original string, including stereo/linker notation |
+| `smiles_sha256` | SHA-256 of that exact string's UTF-8 bytes |
+
+Only exact duplicate strings were removed, in first-appearance order. No
+canonicalization, trimming, chemical validation or applicability filtering was
+performed before export. Different strings remain separate even if they might
+represent equivalent chemistry. These S IDs are new catalog IDs, **not** the
+old P IDs and must never be joined by row number to an unrelated file. Match
+future results using `task_id` plus `smiles_sha256` and the original catalog.
+
+There is no special treatment or packaged geometry for the former 15 polymers.
+If their SMILES occur in this catalog they are ordinary entries here.
+
+## What the batch runs on a collaborator's machine
+
+1. **RadonPy preparation**: interpret the repeating unit, construct and cap a
+   chain, build an amorphous cell, assign GAFF2_mod/RESP and run the classical
+   EQ21step preparation preset. The included adapter targets RadonPy 0.2.11.
+   If the first 5 ns sampling segment finishes normally but fails the original
+   equilibrium QC, it continues from its saved state in 5 ns Additional
+   segments, up to 50 ns total by default. It stops at the first QC PASS;
+   execution, nonfinite-value or structure errors stop immediately.
+2. **MACE density screening**: use that newly prepared structure with the
+   existing density execution core and unchanged numerical/QC settings.
+3. **Record the outcome**: preserve original SMILES identity, parameters,
+   preparation evidence, run manifest, QC and per-task logs.
+
+These preparation operations have **not** already been performed for the
+catalog. They are part of the collaborator's computation. The batch attempts
+every selected task; unsupported chemistry, preparation errors, OOM and QC
+failures are recorded individually and do not stop unrelated tasks. A failed
+task is not a density result and does not cause automatic threshold relaxation.
+This is batch automation, **not a guarantee of 1,691 successful densities**.
+
+## Quick start: no scientific software needed
+
+From this folder, with Python 3.11+:
+
+```bash
+python -B -m polymer_batch.cli plan
+python -B tools/check_public_bundle.py
+python -m pip install -r requirements-test.txt
+python -B -m pytest -q -p no:cacheprovider tests
+```
+
+Planning and these tests do not run chemistry, MACE, LAMMPS, GPU kernels or
+scheduler clients. Tests use synthetic fixtures and fake child executables.
+See [validation scope](VALIDATION.md).
+
+## Configure once
+
+Install the separate [preparation and MACE environments](docs/ENVIRONMENT.md).
+Obtain the agreed model from its authorized source. The package neither
+downloads it nor supplies your compute-account details.
+
+```bash
+python -B tools/configure_site.py \
+  --prep-python /absolute/path/to/radonpy-env/bin/python \
+  --mace-python /absolute/path/to/mace-env/bin/python \
+  --classical-lammps /absolute/path/to/classical-lammps/lmp \
+  --model /absolute/path/to/MACE-MH-1_omol_float32.model-mliap_lammps.pt \
+  --mace-launcher /absolute/path/to/site-mace-launcher.sh \
+  --runtime-dependency /absolute/path/to/mace-lammps/lmp \
+  --runtime-dependency /absolute/path/to/mpi/bin/mpirun \
+  --output /absolute/path/to/mace-density-smiles1691/site.local.json
+```
+
+Use the supplied CRC launcher only for its intended Grid Engine / Intel MPI
+environment. Other clusters must configure a compatible site launcher. The
+helper writes absolute command arrays and the model hash; it does not test the
+scientific runtime or start a process. Adjust allocated CPU and memory settings
+once in `site.local.json`, and preserve that configuration with returned results.
+
+## Run the entire catalog
+
+Inside a permitted compute allocation, with runtime environments configured:
+
+```bash
+python -B -m polymer_batch.cli run \
+  --site /absolute/path/to/mace-density-smiles1691/site.local.json \
+  --work-root /absolute/path/to/private_smiles1691_results \
+  --confirm-run YES
+```
+
+This processes all 1,691 tasks **sequentially within this allocation**. It does
+not start 1,691 GPU jobs at once. Never run real calculations on a login node.
+An exit code of 1 can mean some tasks failed or failed QC even though the batch
+continued through the list; inspect the per-task statuses.
+
+For throughput use scheduler arrays or non-overlapping shards:
+
+```bash
+# One array element, using a 1-based catalog index:
+python -B -m polymer_batch.cli run --task-index 42 \
+  --site /absolute/path/to/site.local.json \
+  --work-root /absolute/path/to/private_smiles1691_results --confirm-run YES
+
+# Worker 0 of 8, with its own assigned compute allocation:
+python -B -m polymer_batch.cli run --shard-index 0 --shard-count 8 \
+  --site /absolute/path/to/site.local.json \
+  --work-root /absolute/path/to/private_smiles1691_results --confirm-run YES
+```
+
+Run shard indices 0 through 7 to cover the list exactly once. Alternatively,
+`--start 1 --stop 100` selects an inclusive range. Do not mix overlapping
+assignments across separate machines; filesystem locks cannot coordinate
+independent disks. Shared work roots require a filesystem with working POSIX
+file locks. [CRC and Slurm array templates](examples/) are examples to adapt,
+not automatic submissions. Limit concurrency according to the resource owner.
+
+## Continue and collect
+
+Repeating the same batch command skips completed, hash-verified tasks and
+continues unstarted ones. Failed or interrupted tasks are **not** silently
+rerun. To explicitly retry an assigned failed/incomplete task, add
+`--task-index N --retry-failed`; a new attempt directory is created and the
+old evidence stays intact. This is task-level continuation, not an MD restart
+resume. Within a new preparation attempt, bounded classical equilibration
+extensions are automatic; they are not scheduler resubmissions. Every segment
+has separate immutable execution/QC records. QC-negative completed MACE tasks
+remain QC-negative and are not auto-rerun.
+
+```bash
+python -B -m polymer_batch.cli status \
+  --work-root /absolute/path/to/private_smiles1691_results
+python -B tools/export_summary.py \
+  --work-root /absolute/path/to/private_smiles1691_results \
+  --output /absolute/path/to/private_smiles1691_summary.csv
+```
+
+Each summary retains all catalog tasks. Unstarted/failed tasks have missing
+density, not zero. Completed target-window estimates retain their QC label.
+Do not publish the result CSV or generated run folders in this code repository.
+
+## Scientific scope
+
+This release delegates preparation to the collaborator; it does not certify
+chemical identities or model coverage. Builder assumptions (chain length,
+capping, tacticity, packing, temperature history) are recorded but are not
+automatically matched to experimental samples. Original strings are preserved
+even when the builder uses a separate internal representation.
+
+The MACE stage remains a single-packing **PILOT / screening** calculation:
+fixed-box minimization, 1 ps NVT at 305 K, 50 ps transition NPT at 305 K, then
+0.1 ps ramp, 5 ps equilibration and 25 ps sampling at 300 K / 1.01325 bar;
+timestep 0.25 fs. A blocked transition does not yield a target density. Only
+the 300 K sampling branch is summarized. The classical preparation density
+is never substituted as a MACE prediction. QC PASS is not experimental accuracy
+or full material-level convergence.
+
+No Tg or modulus command is exposed. Some dormant historical types/policy files
+remain internal dependencies of the reused execution core.
+
+## Publication and contributions
+
+Upload this directory only, not the enclosing private research project. See
+[data boundary](docs/DATA_BOUNDARY.md), [collaboration guide](docs/COLLABORATION.md)
+and [license notice](LICENSE_NOTICE.md). A project license remains the owner's
+choice; this export does not silently grant one.
+
+中文：1691 条原始 SMILES 全部保留，不附实验密度、旧结构和已有结果。
+协作者配置一次环境后可整批、按编号或按分片运行。建链、装箱、经典平衡和
+MACE 计算都在协作者机器上执行；失败逐项记录，不能把失败项当成有效密度。
