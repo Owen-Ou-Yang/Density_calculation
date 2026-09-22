@@ -6,6 +6,10 @@ old simulation results, initial structures or model weights are distributed.**
 This package computes density with an existing MACE-MH-1 / omol / float32
 potential; it does not train a model.
 
+Repository entrypoints: [English](../README.md) / [中文](../README.zh-CN.md).
+Commands below run from this package subdirectory. Full real end-to-end
+acceptance is still pending; see the dated [validation record](VALIDATION.md).
+
 We welcome compute collaborators. One shared task list makes it possible to
 divide the work across people, machines or scheduler arrays without editing
 1,691 input files. Configure your site's installed tools once, then run the
@@ -82,7 +86,7 @@ python -B tools/configure_site.py \
   --mace-launcher /absolute/path/to/site-mace-launcher.sh \
   --runtime-dependency /absolute/path/to/mace-lammps/lmp \
   --runtime-dependency /absolute/path/to/mpi/bin/mpirun \
-  --output /absolute/path/to/mace-density-smiles1691/site.local.json
+  --output /absolute/path/to/private_config/site.local.json
 ```
 
 Use the supplied CRC launcher only for its intended Grid Engine / Intel MPI
@@ -90,6 +94,25 @@ environment. Other clusters must configure a compatible site launcher. The
 helper writes absolute command arrays and the model hash; it does not test the
 scientific runtime or start a process. Adjust allocated CPU and memory settings
 once in `site.local.json`, and preserve that configuration with returned results.
+Keep this configuration outside the entire Git repository.
+
+## Cluster collaborator entrypoint
+
+Prefer the [HPC runbook](docs/CLUSTER_RUNBOOK.md) to editing raw array scripts.
+Copy `examples/cluster.slurm.json` or `examples/cluster.sge.json` outside the
+repository and configure your site paths, allocation and assigned range.
+
+```bash
+python -B tools/cluster.py check --profile /absolute/path/to/private_config/cluster.local.json
+python -B tools/cluster.py render --profile /absolute/path/to/private_config/cluster.local.json \
+  --output-dir /absolute/path/to/private_submissions/qualification-001
+```
+
+The helper never submits. It emits one coordinator per array task and a reviewed
+submission argument list, leaving MPI launch to the existing site launcher.
+Use the generated full command, not bare submission of `job.sh`. Start with
+one task, then scale within the agreed GPU/CPU/storage budget. Offline validation
+does not establish runtime or scientific qualification.
 
 ## Run the entire catalog
 
@@ -97,7 +120,7 @@ Inside a permitted compute allocation, with runtime environments configured:
 
 ```bash
 python -B -m polymer_batch.cli run \
-  --site /absolute/path/to/mace-density-smiles1691/site.local.json \
+  --site /absolute/path/to/private_config/site.local.json \
   --work-root /absolute/path/to/private_smiles1691_results \
   --confirm-run YES
 ```
@@ -175,8 +198,10 @@ remain internal dependencies of the reused execution core.
 
 Upload this directory only, not the enclosing private research project. See
 [data boundary](docs/DATA_BOUNDARY.md), [collaboration guide](docs/COLLABORATION.md)
-and [license notice](LICENSE_NOTICE.md). A project license remains the owner's
-choice; this export does not silently grant one.
+and [license notice](LICENSE_NOTICE.md). This GitHub repository uses the root
+[MIT license](../LICENSE); third-party dependencies retain their own terms.
+For a standalone copy include LICENSE as well. Keep generated output outside
+the whole Git repository. For failures see [troubleshooting](docs/TROUBLESHOOTING.md).
 
 中文：1691 条原始 SMILES 全部保留，不附实验密度、旧结构和已有结果。
 协作者配置一次环境后可整批、按编号或按分片运行。建链、装箱、经典平衡和

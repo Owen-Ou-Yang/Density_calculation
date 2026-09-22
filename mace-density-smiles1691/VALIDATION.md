@@ -50,8 +50,9 @@ construction, packing and 5 ns classical sampling, but failed the original
 classical equilibrium QC. It stopped before MACE; it did not establish
 end-to-end acceptance. No private structure, density value or execution log is
 included in this package. The bounded-extension revision addresses the missing
-continuation behavior without relaxing QC. Its real continuation and MACE
-handoff remain pending validation. CRC and Slurm examples remain templates.
+continuation behavior without relaxing QC. A subsequent recorded milestone
+established classical QC PASS and entry into MACE (below), but not completed
+end-to-end acceptance. CRC and Slurm examples remain templates.
 
 ## Bounded-extension revision, 2026-09-20
 
@@ -69,3 +70,46 @@ conditions. Unsupported entries remain in the catalog and receive explicit
 failure records if attempted. Experimental density values and prior calculated
 densities are absent, so this package cannot itself establish experimental
 accuracy. It must never relabel failed or QC-negative tasks as successful data.
+
+## Real continuation milestone recorded 2026-09-21
+
+One simple catalog input continued from its original classical segment. At
+30 ns cumulative sampling it passed the unchanged classical QC and produced
+the prepared-file handoff. MACE then started and completed initialization;
+transition sampling was still running at the recorded observation.
+
+This is a **dated milestone, not a live job-status claim**. A final verified
+MACE result and completed end-to-end acceptance have not been recorded in this
+release. No experimental value, real computed density, structure, raw log,
+private host/path or execution receipt is published here. Terminal verification
+must still establish finite 300 K density, `COMPLETE_QC_PASS`, `integrity=VERIFIED`
+and the native run's artifact identities. A single successful input would only
+qualify that PILOT; it would not validate the entire catalog or production use.
+
+## GitHub documentation/packaging revision, 2026-09-22
+
+The initial GitHub upload retained package bytes except that its hidden
+`.gitignore` was omitted, and shell-script executable modes were lost. Baseline
+CPU tests passed (74 tests and 29 subtests), but the inventory checker correctly
+rejected the missing file. This revision restores that file and shell modes,
+adds packaging regressions and CPU-only CI, and aligns notices with the existing
+repository MIT license. The manifest is refreshed for this explicitly labeled
+revision; the original frozen local release remains unchanged.
+
+The SMILES catalog, protocol/QC, preparation adapter, density adapter, batch
+runtime, numerical core and shell-script **bytes** are unchanged. CI checks
+software and packaging only and cannot upgrade scientific acceptance.
+
+## Cluster interface revision, 2026-09-22
+
+The cluster wrapper standardizes offline configuration checks and single-node
+Slurm/SGE array rendering. Its tests use real temporary files, synthetic model
+bytes, fake coordinator executables, and local Bash subprocesses. They do not
+call a scheduler, scientific backend or GPU. Runtime compatibility and real
+end-to-end scientific acceptance remain unqualified by these tests.
+
+The existing preparation/density adapters, batch execution engine, 1,691-string
+catalog, scientific protocol/QC, numerical core and CRC launcher bytes remain
+unchanged. A collaborator must qualify the installed environment and one full
+task before expanding to a large assigned range; scheduler standardization alone
+does not validate a different MPI/CUDA build or model memory requirements.

@@ -22,7 +22,7 @@ conditions. Generated structures/results belong in the private work root.
 
 1. Upload this new package only, never the enclosing research checkout.
 2. Check the ZIP/file inventory with `tools/check_public_bundle.py`.
-3. Select a license and verify code/input release permissions.
+3. Retain the repository's MIT LICENSE and verify applicable third-party rights.
 4. Never commit `site.local.json`, model weights or generated results.
 
 `.gitignore` is a convenience, not protection against a forced upload.
@@ -30,3 +30,8 @@ conditions. Generated structures/results belong in the private work root.
 missing or extra content, except normal Git/cache bookkeeping. If modifying the
 package later, keep the original catalog and identity record intact and issue
 a clearly labeled new code release instead of claiming the old hash still fits.
+
+In the GitHub layout, keep generated work and summaries outside the **entire
+repository**, including its root. The package checker covers this subdirectory;
+root documentation, CI and contribution templates are reviewed separately in
+the Git diff. A green checker is not a blanket confidentiality guarantee.

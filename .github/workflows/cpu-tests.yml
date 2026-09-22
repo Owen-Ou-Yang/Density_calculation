@@ -1,0 +1,47 @@
+name: CPU tests and public package
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpu-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cpu-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    defaults:
+      run:
+        working-directory: mace-density-smiles1691
+    steps:
+      - name: Check out public source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up CPU test Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - name: Install CPU test dependencies only
+        run: python -m pip install -r requirements-test.txt
+      - name: Verify public inventory and catalog
+        run: python -B tools/check_public_bundle.py
+      - name: Plan one task without scientific execution
+        run: python -B -m polymer_batch.cli plan --task-index 1
+      - name: Check shell syntax without executing launchers
+        run: |
+          for script in examples/crc_array.sh examples/slurm_array.sh examples/environment.sh.example launchers/crc_intelmpi_3or4gpu.sh; do
+            bash -n "$script"
+          done
+      - name: Run synthetic and fake-process tests
+        run: python -B -m pytest -q -p no:cacheprovider tests
+      - name: Ensure checks did not modify tracked files
+        run: git diff --exit-code

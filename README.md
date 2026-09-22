@@ -1,0 +1,116 @@
+# Polymer density from SMILES with MACE-MH-1
+
+[中文说明](README.zh-CN.md) · [HPC runbook](mace-density-smiles1691/docs/CLUSTER_RUNBOOK.md) · [Run guide](mace-density-smiles1691/README.md) · [Environment](mace-density-smiles1691/docs/ENVIRONMENT.md) · [Validation](mace-density-smiles1691/VALIDATION.md)
+
+A compute-collaboration pipeline for **1,691 exact polymer SMILES strings**.
+It prepares an atomistic cell with RadonPy/GAFF2_mod, then runs a
+**MACE-MH-1 / omol / float32** density PILOT. It uses a pretrained model;
+it does not train one.
+
+```text
+Original SMILES → chain / packing / classical equilibration
+               → unchanged classical QC must pass
+               → MACE initialization and NPT transition
+               → 300 K density sampling → verified receipt and QC
+```
+
+**Release status: engineering tests are available; full real SMILES-to-MACE
+acceptance is not yet complete.** A single-input continuation has passed
+classical QC and reached MACE, but this is not a final validated density.
+This catalog is not chemically prescreened, and not every entry is guaranteed
+to build or converge. See the dated [validation record](mace-density-smiles1691/VALIDATION.md).
+
+## Try the interface without a GPU
+
+On a POSIX system with Python 3.11+, start at the repository root:
+
+```bash
+git clone https://github.com/Owen-Ou-Yang/Density_calculation.git
+cd Density_calculation
+python3 -m venv .venv
+source .venv/bin/activate
+cd mace-density-smiles1691
+python -m pip install -r requirements-test.txt
+python -B tools/check_public_bundle.py
+python -B -m polymer_batch.cli plan --task-index 1
+python -B -m pytest -q -p no:cacheprovider tests
+```
+
+These checks use synthetic data and fake scientific executables. They do not
+run MACE, LAMMPS, chemistry, GPU kernels, or a scheduler. The GitHub Actions
+workflow performs CPU checks only; a green CI badge is not MD validation.
+
+## Run real calculations
+
+For cluster collaborators, start with the **[standard HPC runbook](mace-density-smiles1691/docs/CLUSTER_RUNBOOK.md)**.
+It separates scientific settings (`site.local.json`) from scheduler/resources
+(`cluster.local.json`) and site module setup (`environment.sh`), all private.
+From the package directory:
+
+```bash
+python -B tools/cluster.py check --profile /shared/project/density-private/cluster.local.json
+python -B tools/cluster.py render --profile /shared/project/density-private/cluster.local.json \
+  --output-dir /shared/project/density-private/submissions/qualification-001
+```
+
+The helper supports single-node **Slurm and SGE arrays**, checks CPU budgets,
+paths and checkpoint identity, and produces `job.sh`, `submission.json` and the
+exact `submit-command.txt`. It never submits. Use that command after site review,
+not bare `sbatch job.sh` / `qsub job.sh`; resource options live in the command.
+The starter profiles select one task with concurrency one. Increase the assigned
+range only after a real task qualifies your installation. A site-specific MACE
+launcher is still required; scheduler portability is not GPU-stack portability.
+
+1. Install separate compatible [preparation and MACE environments](mace-density-smiles1691/docs/ENVIRONMENT.md).
+   GPU software, model weights and compiled scientific dependencies are not
+   included, and `requirements-test.txt` does not install them.
+2. Use [`tools/configure_site.py`](mace-density-smiles1691/tools/configure_site.py)
+   to bind absolute interpreter, checkpoint and launcher paths. Keep the site
+   file private. Do not replace the agreed checkpoint, head or dtype.
+3. Validate **one task inside a permitted compute allocation** before a large
+   batch. Follow the [complete run commands](mace-density-smiles1691/README.md#configure-once).
+4. Assign non-overlapping task ranges/shards to collaborators. The default
+   whole-catalog command runs sequentially within one allocation, not 1,691
+   simultaneous jobs. Prefer the profile-based renderer; the older raw
+   [CRC/Slurm examples](mace-density-smiles1691/examples/) remain illustrative
+   and need site-specific configuration.
+5. Preserve successes and failures. Share results privately using the
+   [handoff checklist](mace-density-smiles1691/docs/COLLABORATION.md#private-handoff).
+
+Real preparation and MACE sampling can take days for a single system depending
+on its size, convergence and hardware. Budget walltime, CPU/GPU memory and disk
+space from a representative task; there is no universal hours-per-polymer promise.
+
+## What is public?
+
+| Included | Not included |
+| --- | --- |
+| Code, docs, scheduler examples, synthetic tests | Model weights and installed environments |
+| 1,691 original SMILES with stable IDs and hashes | Experimental values and private source tables |
+| Fixed PILOT protocol and QC policies | Real calculated densities, structures, trajectories and logs |
+
+Only exact-string duplicates were removed. No chemical canonicalization or
+experimental-label filtering was applied. Match returned results by task ID
+**and** original SMILES hash, never by an old polymer ID or unrelated row order.
+Keep output directories **outside the entire repository**, not only outside
+the package subdirectory. See [data boundary](mace-density-smiles1691/docs/DATA_BOUNDARY.md).
+
+## Interpretation
+
+The final reported quantity is the **MACE 300 K sampling density**, never the
+classical preparation density. `COMPLETE_QC_PASS` plus `integrity=VERIFIED`
+qualifies a completed PILOT record; it does not establish experimental accuracy,
+production eligibility, or validation of all 1,691 materials. Missing or failed
+tasks remain missing/failed; do not replace them with zeros or loosen QC.
+
+No Tg or modulus calculation is exposed by this batch interface.
+
+## Contribute
+
+Compute offers, portability reports and tested code improvements are welcome.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md), use a sanitized issue, and arrange
+assignments before consuming a large allocation. Never post credentials, full
+site configs or private scientific outputs in issues/PRs.
+
+The maintainer has selected the repository's [MIT license](LICENSE). Third-party
+software and model weights retain their own terms; see [license notice](mace-density-smiles1691/LICENSE_NOTICE.md).
