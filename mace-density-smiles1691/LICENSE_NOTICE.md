@@ -1,8 +1,10 @@
-# License selection pending
+# License and third-party notice
 
-This export does not assign a new project-wide software or data license.
-The maintainer should choose and add the intended license and verify any
-institutional or third-party obligations before advertising broad reuse.
+The maintainer selected the [MIT license](../LICENSE) for this repository.
+Retain that license and copyright notice when redistributing the software.
+If copying this package subdirectory separately, include the root LICENSE too.
+This notice does not replace the license or grant additional rights to
+third-party software, model weights or external datasets.
 
 MACE, LAMMPS, Python libraries, CUDA and MPI software are not redistributed in
 this package and remain subject to their respective licenses. Model weights

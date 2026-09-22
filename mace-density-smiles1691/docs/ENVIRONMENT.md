@@ -1,5 +1,9 @@
 # Collaborator environment setup
 
+For profile-based Slurm/SGE arrays, resource checks and private paths, follow
+the [HPC runbook](CLUSTER_RUNBOOK.md). It does not replace a site-qualified MACE
+launcher or turn the CPU requirements file into a GPU environment installer.
+
 ## Planning, batch control and tests
 
 Use Python 3.11+ on a POSIX system. Catalog listing, planning and task dispatch
@@ -108,3 +112,21 @@ Use absolute paths without whitespace for package, model, inputs and output on
 compute nodes. Validate the real installation before committing a large resource
 budget. The bounded-extension patch has local fake-backend tests. Its real
 end-to-end acceptance remains pending; do not label it validated yet.
+
+## Before a large allocation
+
+Start with the [offline checks](../README.md#quick-start-no-scientific-software-needed),
+then one real task. Confirm the actual child interpreters, imported libraries,
+allocated GPU count and checkpoint identity using the run records. A successful
+import is not an end-to-end test. Preserve the software versions with private
+results; this repository does not ship a portable binary environment.
+
+Plan for storage as well as GPU memory: classical trajectories and frequent
+MACE restart files can grow substantially. Choose a dedicated work root outside
+the entire Git repository on storage appropriate for the batch. Do not remove
+live attempt files or receipt-bound artifacts to free space. There is no automatic
+garbage collection. A different output cadence needs a separately reviewed code
+and protocol change; do not edit a running attempt.
+
+See [troubleshooting](TROUBLESHOOTING.md) for the distinction between ordinary
+equilibration QC rejection, runtime failure, and still-running attempts.

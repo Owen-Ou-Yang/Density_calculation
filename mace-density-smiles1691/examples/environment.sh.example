@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Copy OUTSIDE the repository and adapt with your cluster administrator.
+# This file is SOURCED once by the single coordinator, not by mpirun/srun.
+# It must configure both the classical-preparation and MACE runtime libraries.
+# The absolute Python paths themselves are stored in site.local.json.
+#
+# Example site initialization (uncomment/adapt only on a compatible cluster):
+# source /absolute/path/to/modules/init/bash
+# module load <site-approved CUDA/MPI modules>
+#
+# For the bundled CRC Intel MPI launcher only:
+# export CUDA_HOME=/absolute/path/to/cuda
+# export IMPI_MPIRUN=/absolute/path/to/intel-mpi/bin/mpirun
+# export IMPI_LIBRARY_PATH=/absolute/path/to/intel-mpi/lib/release:/absolute/path/to/intel-mpi/lib
+# export LAMMPS_RTX6K_IMPI=/absolute/path/to/lammps-build
+# export MACE_CONDA_PREFIX=/absolute/path/to/mace-environment
+# export THERMAL_PYTHON=/absolute/path/to/mace-environment/bin/python
+# export MACE_NVIDIA_SMI=/usr/bin/nvidia-smi
+#
+# On Slurm provide a qualified site launcher instead; do not use the CRC GPU
+# allocation parser or hardcode physical CUDA device IDs. Do not start work here.
+# MACE_GPU_COUNT and MACE_THREADS_PER_RANK are set by the generated job script.
+# Remove the following stop ONLY after replacing this with your site setup:
+printf '%s\n' 'Configure the private site environment before real submission.' >&2
+return 64
