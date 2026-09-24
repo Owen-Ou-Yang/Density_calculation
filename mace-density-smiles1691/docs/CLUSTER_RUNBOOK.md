@@ -18,6 +18,10 @@ no `stage` field remains `all` for compatibility. The sections below describe
 that baseline and the shared resource checks; the split guide covers the
 explicit `prepare` and `density` profiles and their verified handoff.
 
+Use the [CRC resource and cost reference](CRC_RESOURCES_AND_COST.md) for the
+four-GPU layout, approximate CPU/GPU hours and the limits of the single-case
+estimate. Requested walltimes are not confirmed queue limits.
+
 ## 1. Agree the installation and assignment
 
 Have the local cluster administrator or resource owner review the queue or

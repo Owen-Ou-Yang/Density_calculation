@@ -12,9 +12,9 @@
       "sha256": "ece7338270ace7f8104cd5b0964c91bd364e170b25c0d825a5fbe83bd1a8c7b1"
     },
     {
-      "bytes": 14995,
+      "bytes": 15185,
       "path": "README.md",
-      "sha256": "1f985f9e1eda04f415e694bac951cd91c50e618ae926be30debc783daecec2bd"
+      "sha256": "fa9586addd2d85d27234d0ca280f83effa20cee23fe91e6b8eeaa1b571bfd1d8"
     },
     {
       "bytes": 12233,
@@ -42,9 +42,9 @@
       "sha256": "514473ae24369ae848f096b93b8db1a90c0089a96de6b99701ee06d03374f5ee"
     },
     {
-      "bytes": 20998,
+      "bytes": 21215,
       "path": "docs/CLUSTER_RUNBOOK.md",
-      "sha256": "100c4eac0df2b84cc0bffc2d81011198fbe03b830c9728cf18ae2e6a508cd18f"
+      "sha256": "ad9590a9a2e024b6dbd8487a650dd244d764294bbc2f61c790ede36074d5e68e"
     },
     {
       "bytes": 3003,
@@ -52,14 +52,19 @@
       "sha256": "2259c8f7645d37b17ed3f54ad3b5028d2b8f43ae078617eda21e0c0b181aee2d"
     },
     {
-      "bytes": 7873,
+      "bytes": 8244,
       "path": "docs/CPU_GPU_SPLIT.md",
-      "sha256": "02dc3d8eb723d4f6e9ff8a83dc8339ca3c2fc7f01536e9557ba9dc6e129981fb"
+      "sha256": "9944243c6d5b53e9434a4e018c3c33dc800f61f0561e969798ea3bc285f9b7d1"
     },
     {
-      "bytes": 2026,
+      "bytes": 8833,
+      "path": "docs/CRC_RESOURCES_AND_COST.md",
+      "sha256": "09a142c770d085cfe9aed3e40da17f8182eb421ac81cc379dbf0703d84ed8181"
+    },
+    {
+      "bytes": 2414,
       "path": "docs/DATA_BOUNDARY.md",
-      "sha256": "23e5943e191b6749633ed0b3fd79eb75f9d4c16182ef69cc25df0e94e31da49e"
+      "sha256": "f4fe15c65607fe5e40ab4db8e9bda0e4ef78c9565ed7460028d5070785949533"
     },
     {
       "bytes": 7694,
@@ -365,7 +370,7 @@
   "model_weights_included": false,
   "prior_results_included": false,
   "real_end_to_end_acceptance": "PENDING",
-  "revision": "split-cpu-preparation-20260924",
+  "revision": "crc-resource-budget-20260924",
   "schema_version": "public-smiles-compute-release/v1",
   "smiles_count": 1691,
   "starting_structures_included": false
