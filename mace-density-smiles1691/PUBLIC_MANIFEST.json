@@ -12,14 +12,14 @@
       "sha256": "ece7338270ace7f8104cd5b0964c91bd364e170b25c0d825a5fbe83bd1a8c7b1"
     },
     {
-      "bytes": 14691,
+      "bytes": 14995,
       "path": "README.md",
-      "sha256": "e0ffad9a47bcdf5deab8c49b4c7d9d47a7c4d7cdb32409ae03b2a8564c60cf9b"
+      "sha256": "1f985f9e1eda04f415e694bac951cd91c50e618ae926be30debc783daecec2bd"
     },
     {
-      "bytes": 9819,
+      "bytes": 12233,
       "path": "VALIDATION.md",
-      "sha256": "c4a8a1e0046f59795c926a878b5d5767402e10a9da7ee434f20f5c7505d25011"
+      "sha256": "c5750bfa8e9bacd8b52c778b082e9489063187dc4c33b9d0afc41e1892c16a8a"
     },
     {
       "bytes": 78,
@@ -42,14 +42,19 @@
       "sha256": "514473ae24369ae848f096b93b8db1a90c0089a96de6b99701ee06d03374f5ee"
     },
     {
-      "bytes": 20041,
+      "bytes": 20998,
       "path": "docs/CLUSTER_RUNBOOK.md",
-      "sha256": "0804dbe51f79bca1f1add8c1cf91cf2247fdffda31ff9997a01fa76a87ca901e"
+      "sha256": "100c4eac0df2b84cc0bffc2d81011198fbe03b830c9728cf18ae2e6a508cd18f"
     },
     {
       "bytes": 3003,
       "path": "docs/COLLABORATION.md",
       "sha256": "2259c8f7645d37b17ed3f54ad3b5028d2b8f43ae078617eda21e0c0b181aee2d"
+    },
+    {
+      "bytes": 7873,
+      "path": "docs/CPU_GPU_SPLIT.md",
+      "sha256": "02dc3d8eb723d4f6e9ff8a83dc8339ca3c2fc7f01536e9557ba9dc6e129981fb"
     },
     {
       "bytes": 2026,
@@ -62,9 +67,29 @@
       "sha256": "c6feebced99caf9a376f101e8c5a8500a79cde8823a109b98b3690ae390b9de3"
     },
     {
-      "bytes": 6865,
+      "bytes": 7372,
       "path": "docs/TROUBLESHOOTING.md",
-      "sha256": "3c622a3909bcdc3a12f0dbb6aa89fd9c4b7182da130dbbbf57c5fb9cea615bc7"
+      "sha256": "1bf5ad81adbb2af6b28478196b741478bd784d66a55f6346c0f7e1f0cd7f5572"
+    },
+    {
+      "bytes": 743,
+      "path": "examples/cluster.density.sge.json",
+      "sha256": "37215c239ff009fa694d39da4fe3c4ec05723d8df192dd3e0805a7a938b99f77"
+    },
+    {
+      "bytes": 698,
+      "path": "examples/cluster.density.slurm.json",
+      "sha256": "8aa68d3c709cba45f42e739081d1f4ac1c4b79e573185499cb5abb39cfcf9d95"
+    },
+    {
+      "bytes": 637,
+      "path": "examples/cluster.prepare.sge.json",
+      "sha256": "ab030e621dcf0689b09326722e06bab96af5015b63665f2e3135e4932de5b736"
+    },
+    {
+      "bytes": 627,
+      "path": "examples/cluster.prepare.slurm.json",
+      "sha256": "ff2ce9bc14cf2207d23c9a8152ec3bce28a6b44eac39b8e4b9a564fa4b68f16f"
     },
     {
       "bytes": 649,
@@ -117,9 +142,14 @@
       "sha256": "2c5bbfb868e66c0302f53954a8bedcc677699d6fdba5a6561968c091d29f8b0d"
     },
     {
-      "bytes": 31244,
+      "bytes": 35455,
       "path": "polymer_batch/cli.py",
-      "sha256": "1976c3719aa26b9cda9babad1525987463a4d22b4df60257521f4a7d2597513b"
+      "sha256": "3ddfb1d49ddaa116033a90550b1eb51959f2704f3d79bfc6b9833865c310a479"
+    },
+    {
+      "bytes": 9969,
+      "path": "polymer_batch/preparation_handoff.py",
+      "sha256": "b31cf4dfe4d2ffd9281655878aaec9b2f53f9384fba4c8e00fd995885b666aea"
     },
     {
       "bytes": 108,
@@ -145,6 +175,11 @@
       "bytes": 6565,
       "path": "tests/test_density_adapter.py",
       "sha256": "7cde18956222971a79eff7f102498350ed677c2455df242dee75aa7bb0ee23b7"
+    },
+    {
+      "bytes": 14143,
+      "path": "tests/test_preparation_handoff.py",
+      "sha256": "284977118f8b41004f8550b38d97873470be63e7d666aa387f4f91ba40725ada"
     },
     {
       "bytes": 26756,
@@ -175,6 +210,16 @@
       "bytes": 21496,
       "path": "tests/test_smiles_parent_intake.py",
       "sha256": "bb1f0099c7a8c46816a7e7b3f4150ebabaaa30b3345fdf1633903169aed95439"
+    },
+    {
+      "bytes": 17634,
+      "path": "tests/test_split_cluster.py",
+      "sha256": "3bff3d24adb2c1a2a88ccd97e729ed9f51a3fa3e3b6e770544187b39e351b75c"
+    },
+    {
+      "bytes": 3310,
+      "path": "tests/test_split_site_tools.py",
+      "sha256": "e174776f85a872a8069cdd75fd834481cda65393889e5505ec5adec4d4cd9ddb"
     },
     {
       "bytes": 10680,
@@ -212,6 +257,11 @@
       "sha256": "d13e4486c00cf08db6c979bf8f8094b6c789f3ade57e6b4ad3801d0d00e380a0"
     },
     {
+      "bytes": 15160,
+      "path": "thermal_properties/config.py",
+      "sha256": "6f972bdcd342296f4a32cffa947fc0069d5563b8d573f7125106ffe4b7944774"
+    },
+    {
       "bytes": 1058,
       "path": "thermal_properties/config/density_qc_v1.json",
       "sha256": "0c7985f7ea17242b5278ba0256f4dc6655cc818ae52bae59188dc750b20550c0"
@@ -225,11 +275,6 @@
       "bytes": 1865,
       "path": "thermal_properties/config/tg_fit_v1.json",
       "sha256": "44d2b437a2b04582463bde68eab1556f4d751d24bcb4615aca7a3d76d614f52b"
-    },
-    {
-      "bytes": 15160,
-      "path": "thermal_properties/config.py",
-      "sha256": "6f972bdcd342296f4a32cffa947fc0069d5563b8d573f7125106ffe4b7944774"
     },
     {
       "bytes": 35582,
@@ -302,14 +347,14 @@
       "sha256": "e396dc7a809f1fc36ac6e4b583d691e49c82cd9c58541f5a52f5a3574ba2f572"
     },
     {
-      "bytes": 17074,
+      "bytes": 25022,
       "path": "tools/cluster.py",
-      "sha256": "fdd655b4c8ba77e006422def4dd6dc2b9cc84201df4118fee5e3bda9c2e8d76d"
+      "sha256": "5164d4931b2e48b7d82608d9250239d4ceeafb5d8533ee6d8d63b3356ab3a1ec"
     },
     {
-      "bytes": 3727,
+      "bytes": 4318,
       "path": "tools/configure_site.py",
-      "sha256": "c91b103026a2670f684e998b2dbb2c370d72015b8bc0fc1739bc22ebf2d02a5e"
+      "sha256": "2fecf84aef4a1eaa610a6cfefd2c3df54950e29a7ece00c5499e86571c898a3b"
     },
     {
       "bytes": 1458,
@@ -320,7 +365,7 @@
   "model_weights_included": false,
   "prior_results_included": false,
   "real_end_to_end_acceptance": "PENDING",
-  "revision": "bounded-density-sampling-20260923",
+  "revision": "split-cpu-preparation-20260924",
   "schema_version": "public-smiles-compute-release/v1",
   "smiles_count": 1691,
   "starting_structures_included": false

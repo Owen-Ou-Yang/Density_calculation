@@ -166,3 +166,41 @@ Synthetic fixtures and fake backends verify software behavior, not real CRC exec
 convergence. A new real end-to-end PASS has not been established by this code
 change. Final acceptance still requires a finite 300 K density,
 `COMPLETE_QC_PASS`, `integrity=VERIFIED` and verified native artifacts.
+
+## Split CPU/GPU allocation revision, 2026-09-24
+
+The explicit `prepare` stage requests no GPUs and starts only classical
+preparation. It verifies final classical QC and disk artifacts before publishing
+`PREPARED_QC_PASS`, with no density or full-pipeline success claim. The separate
+`density` stage creates a new attempt, copies verified prepared inputs and
+evidence, and starts the unchanged MACE adapter without repeating preparation.
+Legacy `all` execution remains supported and still holds its GPU allocation
+during preparation; using the new profiles is required to remove that waste.
+
+Offline GPU planning includes only verified ready CPU tasks, preserves original
+catalog indices via a compact array mapping, and freezes exact parent identities.
+Failed, missing, incomplete or tampered preparations cannot launch a GPU adapter.
+The helpers do not submit or automatically chain jobs. All new scheduler and
+handoff tests use synthetic temporary files and real fake-child subprocesses,
+not a scientific engine or scheduler.
+
+The preparation/density adapters, scientific protocol and QC settings,
+thermal numerical core/templates, original catalog and CRC launcher remain
+byte-identical to the bounded-sampling publication. No old run or result is
+modified. Real CPU-to-GPU queue qualification and full SMILES-to-300 K density
+acceptance are still pending. This change reduces allocated GPU-hours during
+preparation, not the cost per MACE MD step or its required sampling budget.
+
+Integrated pre-publication verification: **353 tests and 29 subtests passed** in 83.08
+seconds. The new coverage includes CPU-only dependencies and resource requests,
+immutable parent intake, failed/tampered preparation rejection, no repeated
+preparation on the GPU side, and actual Bash execution of a frozen 1,691-entry
+synthetic mapping with bounded per-process arguments. The package checker
+passed for 73 files and all 1,691 original strings. No real scientific backend,
+GPU kernel, scheduler call or remote deployment was part of these checks.
+
+Follow-up resource-only adjustment: split GPU SGE/Slurm examples now request
+192 hours, while CPU preparation remains at 144 hours. The focused scheduler,
+split-workflow and packaging suite passed **169 tests** in 26.32 seconds,
+including exact `h_rt=192:00:00` / `--time=192:00:00` rendering. Actual queue
+acceptance of that request is not established by these offline tests.

@@ -12,6 +12,12 @@ service. A successful check or render is not scheduler acceptance, GPU runtime
 validation, or a completed density calculation. Full real SMILES-to-MACE
 acceptance remains pending in the [validation record](../VALIDATION.md).
 
+To avoid holding GPUs during classical preparation, prefer the
+[two-allocation CPU/GPU workflow](CPU_GPU_SPLIT.md). The original profile with
+no `stage` field remains `all` for compatibility. The sections below describe
+that baseline and the shared resource checks; the split guide covers the
+explicit `prepare` and `density` profiles and their verified handoff.
+
 ## 1. Agree the installation and assignment
 
 Have the local cluster administrator or resource owner review the queue or
@@ -122,8 +128,11 @@ use another single index explicitly assigned by the coordinator.
 | `name`, `queue` | Job name and site partition/queue |
 | `account` | Site account/project; an empty string omits it |
 | `walltime` | Positive `HH:MM:SS` budget, within the site's limit |
-| `gpu_count` | 3 or 4 GPUs per array element on one node |
-| `threads_per_rank` | 4; CPU budget is `gpu_count * 4` per element |
+| `stage` | `all` (default), CPU-only `prepare`, or prepared-parent-only `density` |
+| `gpu_count` | 3 or 4 for `all`/`density`; exactly 0 for `prepare` |
+| `cpu_slots` | Explicit positive CPU allocation for `prepare` |
+| `threads_per_rank` | GPU phases use 4; CPU budget there is `gpu_count * 4` |
+| `prepared_work_root` | `density` only: completed CPU-task root; ready parents are verified and frozen at render time |
 | `memory_gb` | Slurm total node memory; `null` for Grid Engine |
 | `max_concurrent` | Maximum simultaneous elements in this array |
 | `task_start`, `task_stop` | Inclusive catalog indices in `1..1691` |
@@ -132,7 +141,7 @@ use another single index explicitly assigned by the coordinator.
 | `environment_setup` | Absolute path to the reviewed private shell setup file |
 | `work_root`, `log_dir` | Absolute private shared-storage paths |
 | `sge_pe` | Grid Engine only; site parallel environment, default `smp` |
-| `sge_gpu_resource` | Grid Engine only; site GPU resource name, default `gpu_card` |
+| `sge_gpu_resource` | Grid Engine GPU stages only; site resource name, default `gpu_card`; absent or `null` for `prepare` |
 | `sge_memory_resource` | Grid Engine only; explicit site-approved memory resource string, default `null` |
 
 Slurm `memory_gb` is a host-memory request, not GPU VRAM or per-rank memory.
@@ -196,8 +205,9 @@ index. The inner site launcher owns MPI parallelism. Do not wrap the batch
 driver in `mpirun`, `mpiexec`, or a multi-task `srun`: doing so can start several
 copies of preparation and the whole task. The allocation is one node with
 3 or 4 GPUs and respectively 12 or 16 CPU threads. CPU preparation and GPU
-MACE execute in that same allocation, so reserved GPUs may be idle during
-preparation. This release does not split those stages into separate jobs.
+MACE execute in that same allocation in the legacy `stage=all` mode, so reserved
+GPUs may be idle during preparation. To remove that reservation, use the
+[separate CPU and GPU profiles](CPU_GPU_SPLIT.md) instead.
 
 Slurm log names use `%A_%a` to distinguish the array and element. Grid Engine
 receives the existing log directory and supplies its scheduler-specific array
@@ -238,7 +248,10 @@ For `N = task_stop - task_start + 1`, concurrency `C`, and GPUs per element `G`:
 - Their simultaneous GPU request is `min(N, C) * G` and CPU request is
   `min(N, C) * G * 4` threads.
 - An allocation ceiling for one pass is `N * G * walltime_hours` GPU-hours,
-  including GPU reservation during CPU preparation. Retries or additional
+  including GPU reservation during CPU preparation in legacy `stage=all`.
+  Split `prepare` jobs request zero GPUs; their CPU costs are separate.
+  In split `density` mode, `N` is the verified ready-task count, not the whole
+  selected catalog range. Retries or additional
   arrays add to that budget; scheduler billing rules may differ.
 
 For example, 100 tasks with 4 GPUs each and concurrency 2 can reserve 8 GPUs

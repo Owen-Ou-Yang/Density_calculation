@@ -109,11 +109,15 @@ python -B tools/cluster.py render --profile /shared/project/density-private/clus
 
 ## CRC 配置与 GPU 小时预算
 
-仓库的 [SGE 示例](mace-density-smiles1691/examples/cluster.sge.json)申请
+仓库的旧版合并式 [SGE 示例](mace-density-smiles1691/examples/cluster.sge.json)申请
 `gpu@@zabaras_rtx6k` 队列、4 张 GPU、`smp` 16 个 CPU slots，walltime 上限
 144 小时。MACE launcher 使用 4 个 MPI ranks，每个 rank 4 个线程。
 默认只选择一条任务、并发 1；实际节点的 GPU 型号与显存需要现场确认。
 144 小时是调度时限，不是预计完成时间。
+
+推荐使用的[分阶段 GPU 配置](mace-density-smiles1691/examples/cluster.density.sge.json)
+改为申请 **192 小时（8 天）**，经典准备另用 CPU 作业。
+提交前须确认所选队列允许该时长；这不是全部 polymer 都能按时完成的保证。
 
 目前没有对全部 1,691 条输入校准过的自动 GPU-hours 估算器。预算应区分：
 
@@ -125,6 +129,11 @@ python -B tools/cluster.py render --profile /shared/project/density-private/clus
 GPU，因此资源占用不等于 GPU 实际繁忙时间，也不一定等于集群计费口径。
 排队时间不计作计算时间；初始准备、初始化／平衡、失败尝试和存储需要单独计入。
 不能用一个小体系的速度直接保证所有 polymer 的成本。
+
+批量运行可改用[CPU 准备／GPU 密度分离入口](mace-density-smiles1691/docs/CPU_GPU_SPLIT.md)：
+CPU array 不申请 GPU；完成后，仅为已验证 `PREPARED_QC_PASS` 的任务生成 GPU array。
+旧的 `stage=all` 兼容入口仍会在准备期间占着 GPU。两阶段交接校验结构和收据，
+GPU 阶段不重复经典准备；工具不自动提交下一阶段。准备成功不代表密度计算完成。
 
 **规模化状态：具备 array／分片和有限续采样机制，但新版完整真实验收仍待通过。**
 先完成单任务的 300 K 密度与完整性验收，再用少量有代表性的体系测量成功率、

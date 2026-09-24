@@ -118,6 +118,11 @@ does not establish runtime or scientific qualification.
 
 ## Run the entire catalog
 
+For CPU preparation without holding GPU resources, use the
+[two-allocation workflow](docs/CPU_GPU_SPLIT.md). It preserves the commands below
+as the legacy `--stage all` interface. New `--stage prepare` and `--stage density`
+commands separate resource use and require a verified prepared-parent handoff.
+
 Inside a permitted compute allocation, with runtime environments configured:
 
 ```bash

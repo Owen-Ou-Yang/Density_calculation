@@ -1,5 +1,26 @@
 # Changelog
 
+## Separate CPU preparation and GPU density allocations — 2026-09-24
+
+- Add explicit `prepare` and `density` execution stages; preserve legacy `all`.
+  CPU preparation requests zero GPUs, needs no MACE installation/checkpoint,
+  and finishes with `PREPARED_QC_PASS`, not a passing density result.
+- Freeze verified CPU-parent receipts, structures and QC evidence into GPU
+  plans. Copy prepared inputs into a new GPU attempt without repeating DFT,
+  building, packing or classical equilibration. Preserve old attempts.
+- Add CPU/GPU SGE and Slurm profiles, stage-specific site generation and a
+  two-allocation runbook. GPU arrays contain only verified ready tasks with
+  explicit mapping to original catalog identities. No automatic submission,
+  job chaining or retries.
+- Split GPU profiles request 192 hours; CPU preparation stays at 144 hours.
+  This is a resource-budget change only and still requires queue-policy approval.
+- Scientific adapters, model policy, protocol/QC, numerical core, catalog and
+  launcher bytes are unchanged. Local fake-process tests do not establish
+  real cluster qualification or completed end-to-end MACE acceptance.
+- Local verification: **353 tests and 29 subtests passed**, including a
+  1,691-entry synthetic array mapping with per-task parent checks. The 73-file
+  public-package check passed; no real model or scheduler was run.
+
 ## Publication notes — 2026-09-24
 
 - Publish the bounded MACE sampling revision below after a fresh CPU test run:
