@@ -1,0 +1,23 @@
+{
+  "scheduler": "sge",
+  "stage": "density",
+  "name": "polymer_density",
+  "queue": "gpu@@zabaras_rtx6k",
+  "account": "",
+  "walltime": "192:00:00",
+  "gpu_count": 4,
+  "threads_per_rank": 4,
+  "memory_gb": null,
+  "sge_pe": "smp",
+  "sge_gpu_resource": "gpu_card",
+  "sge_memory_resource": null,
+  "max_concurrent": 1,
+  "task_start": 1,
+  "task_stop": 1,
+  "driver_python": "/absolute/path/to/python3.11",
+  "site_config": "/absolute/path/to/private_config/site.density.json",
+  "environment_setup": "/absolute/path/to/private_config/environment.gpu.sh",
+  "prepared_work_root": "/absolute/path/to/private_cpu_results",
+  "work_root": "/absolute/path/to/private_gpu_results",
+  "log_dir": "/absolute/path/to/private_gpu_scheduler_logs"
+}

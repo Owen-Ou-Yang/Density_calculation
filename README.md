@@ -84,12 +84,17 @@ space from a representative task; there is no universal hours-per-polymer promis
 
 ### CRC resources and estimated GPU-hours
 
-The supplied [SGE profile](mace-density-smiles1691/examples/cluster.sge.json)
+The legacy combined [SGE profile](mace-density-smiles1691/examples/cluster.sge.json)
 requests `gpu@@zabaras_rtx6k`, 4 GPUs, `smp` 16 CPU slots and a 144-hour
 walltime limit. The MACE launcher uses 4 MPI ranks with 4 threads per rank.
 The default profile selects one task with concurrency one; it is not an
 instruction to launch the whole catalog. Confirm GPU model/memory and scheduler
 policy on the actual allocated node. The 144 hours is a limit, not an estimate.
+
+The recommended [split GPU profile](mace-density-smiles1691/examples/cluster.density.sge.json)
+instead requests **192 hours (8 days)**, with CPU preparation in a separate
+allocation. Confirm that the chosen queue permits this request; it is not a
+catalog-wide runtime guarantee.
 
 There is no calibrated automatic GPU-hour estimator for all 1,691 inputs.
 Report **allocated GPU-hours = allocated GPU count × running wall-clock hours**
@@ -101,6 +106,12 @@ From a representative task, estimate extra sampling as
 `GPU count × measured hours/ps × additional ps`, keeping preparation, initialization,
 equilibration, failed attempts and storage budgets explicit. Different cell
 sizes, chemistries and convergence histories require separate measurements.
+
+For large batches, use the new [CPU preparation / GPU density split](mace-density-smiles1691/docs/CPU_GPU_SPLIT.md).
+The legacy `stage=all` path still reserves GPUs during preparation. In the split
+path, the CPU array requests **zero GPUs**, and a GPU array is rendered only for
+finished, hash-verified `PREPARED_QC_PASS` tasks. Neither stage submits the next
+one automatically. CPU preparation success is not a completed MACE density.
 
 **Scale readiness:** array/sharding and bounded continuation are implemented,
 but the new continuation has not yet passed a real complete SMILES-to-300 K

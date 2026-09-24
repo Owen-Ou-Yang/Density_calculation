@@ -119,3 +119,12 @@ cadence, restart semantics or scientific sampling to reduce cost.
 Include the code commit, relevant software versions, stage, task ID and a short
 sanitized error excerpt. Do not publish raw results, trajectories, full site files,
 private paths or credentials. Use synthetic fixtures for code regressions.
+
+## CPU preparation holds GPU resources
+
+`preparation.gpu=0` selects CPU classical execution but cannot release GPUs
+reserved by the enclosing scheduler job. Use the [CPU/GPU split](CPU_GPU_SPLIT.md):
+`stage=prepare`, zero GPUs, an approved CPU queue and its own CPU-only setup;
+then render `stage=density` only for verified `PREPARED_QC_PASS` parents.
+Do not edit or reclassify old running allocations. CPU success is not final
+density success; failed/missing preparation must not start a GPU calculation.

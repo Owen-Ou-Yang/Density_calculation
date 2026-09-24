@@ -21,6 +21,7 @@ FIELDS = {
     "threads_per_rank", "memory_gb", "max_concurrent", "task_start", "task_stop",
     "driver_python", "site_config", "environment_setup", "work_root", "log_dir",
     "sge_pe", "sge_gpu_resource", "sge_memory_resource",
+    "stage", "cpu_slots", "prepared_work_root",
 }
 
 
@@ -67,12 +68,56 @@ def word(value, label, pattern=r"[A-Za-z0-9_][A-Za-z0-9_.@:+-]*"):
     return value
 
 
+def prepared_selection(root, tasks):
+    """Freeze only verified CPU successes; never discover parents inside a GPU job."""
+    from polymer_batch.cli import prepared_parent_selector
+    ready, excluded, records = [], [], {}
+    for task in tasks:
+        task_root = root / task["task_id"]
+        if task_root.is_symlink():
+            raise ValueError(f"prepared task root cannot be a symlink: {task_root}")
+        attempts = sorted((path for path in task_root.iterdir()
+                           if re.fullmatch(r"attempt_[0-9]{4,}", path.name)),
+                          key=lambda path: int(path.name.split("_")[1])) if task_root.exists() else []
+        if not attempts:
+            excluded.append({"task_id": task["task_id"], "reason": "NOT_STARTED"})
+            continue
+        attempt = attempts[-1]
+        receipt = attempt / "receipt.json"
+        if attempt.is_symlink() or receipt.is_symlink():
+            raise ValueError(f"prepared evidence cannot be a symlink: {attempt}")
+        if not receipt.is_file():
+            excluded.append({"task_id": task["task_id"], "reason": "INCOMPLETE"})
+            continue
+        value = json.loads(receipt.read_text())
+        if not isinstance(value, dict):
+            raise ValueError(f"invalid prepared receipt: {receipt}")
+        status = value.get("status", "INCOMPLETE")
+        if status != "PREPARED_QC_PASS":
+            excluded.append({"task_id": task["task_id"], "reason": status})
+            continue
+        selector = prepared_parent_selector(attempt, task)
+        item = {"array_index": len(ready) + 1, "task_index": int(task["task_id"][1:]),
+                "task_id": task["task_id"], "parent": selector}
+        ready.append(item)
+        for label, record in selector["artifacts"].items():
+            records["parent_" + task["task_id"] + "_" + label] = record
+    if not ready:
+        raise ValueError("no verified PREPARED_QC_PASS parents; no GPU submission rendered")
+    return ready, excluded, records
+
+
 def check(profile_path):
     profile_path = absolute(str(profile_path), "profile", kind="file", private=True)
     profile = json.loads(profile_path.read_text())
     if not isinstance(profile, dict) or set(profile) - FIELDS:
         raise ValueError("profile must be an object with only documented fields")
     p = dict(profile)
+    stage = p.get("stage", "all")
+    if stage not in {"all", "prepare", "density"}:
+        raise ValueError("stage must be all, prepare or density")
+    if stage != "density" and p.get("prepared_work_root") is not None:
+        raise ValueError("prepared_work_root is only valid for stage=density")
     if p.get("scheduler") not in {"slurm", "sge"}:
         raise ValueError("scheduler must be slurm or sge")
     for field in ("name", "queue"):
@@ -86,11 +131,21 @@ def check(profile_path):
         raise ValueError("walltime must be HH:MM:SS")
     if sum(int(v) for v in walltime.split(":")) == 0:
         raise ValueError("walltime must be positive")
-    gpus = integer(p.get("gpu_count"), "gpu_count")
-    threads = integer(p.get("threads_per_rank"), "threads_per_rank")
-    if gpus not in {3, 4} or threads != 4:
-        raise ValueError("this release uses 3 or 4 GPUs and 4 threads per rank")
-    slots = gpus * threads
+    if stage == "prepare":
+        gpus = integer(p.get("gpu_count"), "gpu_count", 0)
+        if gpus != 0:
+            raise ValueError("stage=prepare must request gpu_count=0")
+        slots = integer(p.get("cpu_slots"), "cpu_slots")
+        if p.get("threads_per_rank") is not None:
+            raise ValueError("CPU preparation uses cpu_slots, not threads_per_rank")
+    else:
+        gpus = integer(p.get("gpu_count"), "gpu_count")
+        threads = integer(p.get("threads_per_rank"), "threads_per_rank")
+        if gpus not in {3, 4} or threads != 4:
+            raise ValueError("this release uses 3 or 4 GPUs and 4 threads per rank")
+        slots = gpus * threads
+        if p.get("cpu_slots") is not None and p["cpu_slots"] != slots:
+            raise ValueError("GPU cpu_slots must equal gpu_count * threads_per_rank")
     first = integer(p.get("task_start"), "task_start")
     last = integer(p.get("task_stop"), "task_stop")
     tasks = select_tasks(load_catalog(ROOT / "inputs/smiles.csv"), start=first, stop=last)
@@ -103,6 +158,9 @@ def check(profile_path):
         "CPU preparation holds this GPU allocation; benchmark one task before scaling.",
         "Shared POSIX locking and actual memory/storage needs require site validation.",
     ]
+    if stage != "all":
+        warnings.remove("CPU preparation holds this GPU allocation; benchmark one task before scaling.")
+        warnings.append("Separate stages do not submit or chain jobs automatically; render density only after CPU completion.")
     if p["scheduler"] == "slurm":
         integer(p.get("memory_gb"), "memory_gb")
         if any(p.get(k) is not None for k in ("sge_pe", "sge_gpu_resource", "sge_memory_resource")):
@@ -111,13 +169,17 @@ def check(profile_path):
         if p.get("memory_gb") is not None:
             raise ValueError("SGE memory_gb must be null; use the site's sge_memory_resource")
         p.setdefault("sge_pe", "smp")
-        p.setdefault("sge_gpu_resource", "gpu_card")
         word(p["sge_pe"], "sge_pe")
-        word(p["sge_gpu_resource"], "sge_gpu_resource", r"[A-Za-z_][A-Za-z0-9_]*")
+        if stage == "prepare":
+            if p.get("sge_gpu_resource") is not None:
+                raise ValueError("CPU preparation must not configure an SGE GPU resource")
+        else:
+            p.setdefault("sge_gpu_resource", "gpu_card")
+            word(p["sge_gpu_resource"], "sge_gpu_resource", r"[A-Za-z_][A-Za-z0-9_]*")
         memory = p.get("sge_memory_resource")
         if memory is not None:
             word(memory, "sge_memory_resource", r"[A-Za-z_][A-Za-z0-9_]*=[1-9][0-9]*(?:[.][0-9]+)?[kKmMgGtT]?")
-            if memory.split("=", 1)[0] in {p["sge_gpu_resource"], "h_rt"}:
+            if memory.split("=", 1)[0] in {p.get("sge_gpu_resource"), "gpu_card", "h_rt"} or (stage == "prepare" and "gpu" in memory.split("=", 1)[0].lower()):
                 raise ValueError("sge_memory_resource must not override GPU or walltime resources")
         else:
             warnings.append("No SGE memory request: confirm the site's memory resource/limits before submission.")
@@ -141,16 +203,18 @@ def check(profile_path):
         raise ValueError("work_root and log_dir must be separate directories")
     if p["scheduler"] == "slurm" and "%" in p["log_dir"]:
         raise ValueError("Slurm log_dir must not contain filename expansion characters (%)")
-    site = _site(Path(p["site_config"]))
-    for stage, adapter in (("prepare", "radonpy_prepare.py"), ("density", "mace_density.py")):
-        argv = site[stage + "_argv"]
-        record(stage + "_python", argv[0], executable=True)
+    site = _site(Path(p["site_config"]), stage=stage)
+    for adapter_stage, adapter in (("prepare", "radonpy_prepare.py"), ("density", "mace_density.py")):
+        if stage != "all" and stage != adapter_stage:
+            continue
+        argv = site[adapter_stage + "_argv"]
+        record(adapter_stage + "_python", argv[0], executable=True)
         expected = [argv[0], "-B", str(ROOT / "adapters" / adapter), "--request", "{request}",
                     "--output-dir", "{output_dir}", "--site", "{site}"]
         if argv != expected:
-            raise ValueError(f"{stage}_argv: use configure_site.py for this installed package; no outer MPI wrapper")
-        record(stage + "_adapter", ROOT / "adapters" / adapter)
-    prep = site.get("preparation", {})
+            raise ValueError(f"{adapter_stage}_argv: use configure_site.py for this installed package; no outer MPI wrapper")
+        record(adapter_stage + "_adapter", ROOT / "adapters" / adapter)
+    prep = site.get("preparation", {}) if stage != "density" else {}
     if not isinstance(prep, dict):
         raise ValueError("site.preparation must be an object")
     prep_cpus = integer(prep.get("mpi", 1), "preparation.mpi") * integer(prep.get("omp", 1), "preparation.omp")
@@ -162,16 +226,19 @@ def check(profile_path):
     qm_memory = integer(prep.get("memory_mb", 1000), "preparation.memory_mb")
     if p["scheduler"] == "slurm" and qm_memory > p["memory_gb"] * 1024:
         raise ValueError("Psi4 memory_mb exceeds Slurm node memory; this is not a peak-memory estimate")
-    record("classical_lammps", prep.get("lammps_exec", ""), executable=True)
-    density = site.get("density", {})
+    if stage != "density":
+        record("classical_lammps", prep.get("lammps_exec", ""), executable=True)
+    density = site.get("density", {}) if stage != "prepare" else {}
     if not isinstance(density, dict):
         raise ValueError("site.density must be an object")
-    record("model", density.get("model_path", ""))
-    if records["model"]["sha256"] != density.get("model_sha256"):
-        raise ValueError("checkpoint hash differs from site configuration")
-    launcher = record("launcher", density.get("launcher_path", ""), executable=True)
     bundled = ROOT / "launchers/crc_intelmpi_3or4gpu.sh"
-    is_crc_launcher = launcher.resolve() == bundled.resolve() or sha(launcher) == sha(bundled)
+    is_crc_launcher = False
+    if stage != "prepare":
+        record("model", density.get("model_path", ""))
+        if records["model"]["sha256"] != density.get("model_sha256"):
+            raise ValueError("checkpoint hash differs from site configuration")
+        launcher = record("launcher", density.get("launcher_path", ""), executable=True)
+        is_crc_launcher = launcher.resolve() == bundled.resolve() or sha(launcher) == sha(bundled)
     if p["scheduler"] == "slurm" and is_crc_launcher:
         raise ValueError("CRC SGE launcher cannot be used under Slurm; configure a qualified site launcher")
     dependencies = density.get("runtime_dependencies", [])
@@ -182,30 +249,53 @@ def check(profile_path):
     for label, path in {"catalog": "inputs/smiles.csv", "catalog_identity": "inputs/catalog_identity.json",
                         "protocol": "configs/protocol.json", "density_qc": "thermal_properties/config/density_qc_v1.json",
                         "transition_qc": "thermal_properties/config/mace_transition_qc_v1.json"}.items():
-        record(label, ROOT / path)
+        if stage != "prepare" or label in {"catalog", "catalog_identity"}:
+            record(label, ROOT / path)
+    extra = {}
+    selected_count = len(tasks)
+    if stage == "density":
+        parent_root = absolute(p.get("prepared_work_root"), "prepared_work_root", kind="dir", private=True)
+        if parent_root.is_symlink():
+            raise ValueError("prepared_work_root cannot be a symlink")
+        p["prepared_work_root"] = str(parent_root.resolve())
+        ready, excluded, parent_records = prepared_selection(parent_root, tasks)
+        records.update(parent_records)
+        selected_count = len(ready)
+        extra.update(ready_parents=ready, excluded_tasks=excluded, catalog_selected_count=len(tasks),
+                     scheduler_task_start=1, scheduler_task_stop=len(ready),
+                     effective_max_concurrent=min(concurrency, len(ready)))
+    if stage == "density":
+        prep_cpus = qm_cpus = 0
     return {"schema_version": "cluster-submission-plan/v1", "status": "OFFLINE_CHECK_PASS",
-            "profile": p, "selected_count": len(tasks), "mpi_ranks": gpus, "cpu_slots": slots,
-            "launcher_kind": "CRC_INTELMPI" if is_crc_launcher else "SITE_PROVIDED_NOT_QUALIFIED_BY_THIS_TOOL",
-            "max_simultaneous_gpus": gpus * concurrency, "preparation_cpu_slots": prep_cpus,
+            "profile": p, "selected_count": selected_count, "mpi_ranks": gpus if stage != "prepare" else prep.get("mpi", 1), "cpu_slots": slots,
+            "launcher_kind": "NOT_USED_CPU_PREPARATION" if stage == "prepare" else "CRC_INTELMPI" if is_crc_launcher else "SITE_PROVIDED_NOT_QUALIFIED_BY_THIS_TOOL",
+            "max_simultaneous_gpus": gpus * extra.get("effective_max_concurrent", concurrency), "preparation_cpu_slots": prep_cpus,
             "psi4_cpu_slots": qm_cpus, "records": records, "warnings": warnings,
-            "scientific_acceptance": "NOT_TESTED", "scheduler_calls": 0, "model_executions": 0}
+            "scientific_acceptance": "NOT_TESTED", "scheduler_calls": 0, "model_executions": 0, **extra}
 
 
 def submit_argv(plan, script):
     p = plan["profile"]
-    span = f'{p["task_start"]}-{p["task_stop"]}'
+    stage = p.get("stage", "all")
+    span = f'{plan.get("scheduler_task_start", p["task_start"])}-{plan.get("scheduler_task_stop", p["task_stop"])}'
+    concurrency = plan.get("effective_max_concurrent", p["max_concurrent"])
     if p["scheduler"] == "slurm":
         argv = ["sbatch", "--job-name=" + p["name"], "--partition=" + p["queue"], "--nodes=1",
-                f'--ntasks={p["gpu_count"]}', f'--cpus-per-task={p["threads_per_rank"]}',
-                f'--gres=gpu:{p["gpu_count"]}', f'--mem={p["memory_gb"]}G', "--time=" + p["walltime"],
-                f'--array={span}%{p["max_concurrent"]}', "--export=ALL", "--no-requeue",
+                f'--ntasks={plan["cpu_slots"] if stage == "prepare" else p["gpu_count"]}',
+                f'--cpus-per-task={1 if stage == "prepare" else p["threads_per_rank"]}']
+        if stage != "prepare":
+            argv += [f'--gres=gpu:{p["gpu_count"]}']
+        argv += [f'--mem={p["memory_gb"]}G', "--time=" + p["walltime"],
+                f'--array={span}%{concurrency}', "--export=ALL", "--no-requeue",
                 "--output=" + p["log_dir"] + "/%x-%A_%a.out", "--error=" + p["log_dir"] + "/%x-%A_%a.err"]
         if p["account"]:
             argv += ["--account=" + p["account"]]
     else:
         argv = ["qsub", "-clear", "-S", "/bin/bash", "-q", p["queue"], "-N", p["name"],
-                "-pe", p["sge_pe"], str(plan["cpu_slots"]), "-l", f'{p["sge_gpu_resource"]}={p["gpu_count"]}',
-                "-l", "h_rt=" + p["walltime"], "-t", span, "-tc", str(p["max_concurrent"]),
+                "-pe", p["sge_pe"], str(plan["cpu_slots"])]
+        if stage != "prepare":
+            argv += ["-l", f'{p["sge_gpu_resource"]}={p["gpu_count"]}']
+        argv += ["-l", "h_rt=" + p["walltime"], "-t", span, "-tc", str(concurrency),
                 "-r", "n", "-j", "n", "-o", p["log_dir"], "-e", p["log_dir"]]
         if p["account"]:
             argv += ["-P", p["account"]]
@@ -216,13 +306,21 @@ def submit_argv(plan, script):
 
 def render_script(plan):
     p = plan["profile"]
+    stage = p.get("stage", "all")
+    start = plan.get("scheduler_task_start", p["task_start"])
+    stop = plan.get("scheduler_task_stop", p["task_stop"])
     variable = "SLURM_ARRAY_TASK_ID" if p["scheduler"] == "slurm" else "SGE_TASK_ID"
     lines = ["#!/usr/bin/env bash", "# Use submit-command.txt; resource flags are NOT embedded here.",
              "set -euo pipefail", "umask 077", f'task_index="${{{variable}:?scheduler array allocation required}}"',
              '[[ "$task_index" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid array index" >&2; exit 64; }',
-             f'(( task_index >= {p["task_start"]} && task_index <= {p["task_stop"]} )) || exit 64']
+             f'(( task_index >= {start} && task_index <= {stop} )) || exit 64']
     if p["scheduler"] == "slurm":
-        lines += ['[[ "${SLURM_JOB_NUM_NODES:?}" == 1 ]] || exit 64',
+        if stage == "prepare":
+            lines += ['[[ "${SLURM_JOB_NUM_NODES:?}" == 1 ]] || exit 64',
+                      f'[[ "${{SLURM_NTASKS:?}}" == {plan["cpu_slots"]} ]] || exit 64',
+                      '[[ "${SLURM_CPUS_PER_TASK:?}" == 1 ]] || exit 64']
+        else:
+            lines += ['[[ "${SLURM_JOB_NUM_NODES:?}" == 1 ]] || exit 64',
                   f'[[ "${{SLURM_NTASKS:?}}" == {p["gpu_count"]} ]] || exit 64',
                   f'[[ "${{SLURM_GPUS_ON_NODE:?GPU allocation count required}}" == {p["gpu_count"]} ]] || exit 64',
                   f'[[ "${{SLURM_CPUS_PER_TASK:?}}" == {p["threads_per_rank"]} ]] || exit 64']
@@ -230,10 +328,31 @@ def render_script(plan):
         lines += [f'[[ "${{NSLOTS:?}}" == {plan["cpu_slots"]} ]] || exit 64',
                   '[[ -r "${PE_HOSTFILE:?}" ]] || exit 64',
                   "awk '{hosts[$1]=1} END {exit !(length(hosts)==1)}' \"$PE_HOSTFILE\" || exit 64"]
+    common_records = plan["records"]
+    if stage == "density":
+        # Keep the full map frozen in the script, but pass/hash only this element's
+        # parent. Embedding all 1,691 parents in python -c exceeds Linux MAX_ARG_STRLEN.
+        common_records = {label: record for label, record in common_records.items()
+                          if not label.startswith("parent_")}
+        lines.append('case "$task_index" in')
+        for item in plan["ready_parents"]:
+            payload = json.dumps(item["parent"]["artifacts"], separators=(",", ":"), sort_keys=True)
+            lines.append(f'  {item["array_index"]}) task_index={item["task_index"]}; prepared_from=' +
+                         shlex.quote(item["parent"]["attempt_root"]) + '; prepared_artifacts=' +
+                         shlex.quote(payload) + ' ;;')
+        lines += ['  *) exit 64 ;;', 'esac']
     guard = (
-        "import hashlib, pathlib, os\n"
-        f"records = {plan['records']!r}\n"
+        "import hashlib, pathlib, os, json, sys\n"
+        f"records = {common_records!r}\n"
+    )
+    if stage == "density":
+        guard += "records.update({'parent_' + key: value for key, value in json.loads(sys.argv[1]).items()})\n"
+    guard += (
         "for label, record in records.items():\n"
+        "    if label.startswith('parent_'):\n"
+        "        path = pathlib.Path(record['path'])\n"
+        "        if any(part.is_symlink() for part in (path, *path.parents)):\n"
+        "            raise SystemExit('Prepared evidence became a symlink: ' + label)\n"
         "    digest = hashlib.sha256()\n"
         "    with pathlib.Path(record['path']).open('rb') as stream:\n"
         "        for chunk in iter(lambda: stream.read(1048576), b''):\n"
@@ -241,7 +360,17 @@ def render_script(plan):
         "    if digest.hexdigest() != record['sha256']:\n"
         "        raise SystemExit('Rendered input changed: ' + label)\n"
     )
-    if p["scheduler"] == "sge":
+    if stage == "prepare":
+        guard += (
+            "for name, value in os.environ.items():\n"
+            "    if ((name.startswith('SGE_HGR_') and 'gpu' in name.lower()) or name in "
+            "{'SLURM_GPUS', 'SLURM_GPUS_ON_NODE', 'SLURM_JOB_GPUS', 'SLURM_STEP_GPUS'}):\n"
+            "        count = name in {'SLURM_GPUS', 'SLURM_GPUS_ON_NODE'}\n"
+            "        allocated = (value.strip() not in {'', '0'}) if count else bool(value.strip())\n"
+            "        if allocated:\n"
+            "            raise SystemExit('CPU-only preparation unexpectedly received a GPU allocation')\n"
+        )
+    elif p["scheduler"] == "sge":
         guard += (
             f"resource = {p['sge_gpu_resource']!r}\n"
             "task = os.environ.get('SGE_HGR_TASK_' + resource, '').strip()\n"
@@ -253,19 +382,29 @@ def render_script(plan):
             f"if len(allocated) != {p['gpu_count']} or len(set(allocated)) != len(allocated):\n"
             "    raise SystemExit('SGE GPU allocation missing, duplicate or wrong count; no preparation started')\n"
         )
-    lines += [shlex.join([p["driver_python"], "-B", "-c", guard]),
+    guard_suffix = ' "$prepared_artifacts"' if stage == "density" else ""
+    lines += [shlex.join([p["driver_python"], "-B", "-c", guard]) + guard_suffix,
               "source " + shlex.quote(p["environment_setup"]), "set -euo pipefail"]
     if plan["launcher_kind"] == "CRC_INTELMPI":
         for name in ("CUDA_HOME", "IMPI_MPIRUN", "LAMMPS_RTX6K_IMPI", "IMPI_LIBRARY_PATH", "MACE_CONDA_PREFIX", "THERMAL_PYTHON"):
             lines.append(f': "${{{name}:?required by CRC launcher; configure environment_setup}}"')
         lines += ['[[ -x "$IMPI_MPIRUN" && -x "$LAMMPS_RTX6K_IMPI/lmp" && -x "$THERMAL_PYTHON" ]] || exit 64',
                   '[[ -d "$CUDA_HOME" && -d "$MACE_CONDA_PREFIX" ]] || exit 64']
-    lines += [
-              f'export MACE_GPU_COUNT={p["gpu_count"]}', f'export MACE_THREADS_PER_RANK={p["threads_per_rank"]}',
-              "export PYTHONDONTWRITEBYTECODE=1", "cd " + shlex.quote(str(ROOT)),
+    if stage == "prepare":
+        lines += ['export CUDA_VISIBLE_DEVICES=""', 'export NVIDIA_VISIBLE_DEVICES=void',
+                  'unset MACE_GPU_COUNT MACE_THREADS_PER_RANK']
+    else:
+        lines += [f'export MACE_GPU_COUNT={p["gpu_count"]}', f'export MACE_THREADS_PER_RANK={p["threads_per_rank"]}']
+    command = ["exec", p["driver_python"], "-B", "-m", "polymer_batch.cli", "run", "--site", p["site_config"],
+               "--work-root", p["work_root"], "--confirm-run", "YES"]
+    if stage != "all":
+        command += ["--stage", stage]
+    suffix = ' --task-index "$task_index"'
+    if stage == "density":
+        suffix += ' --prepared-from "$prepared_from"'
+    lines += ["export PYTHONDONTWRITEBYTECODE=1", "cd " + shlex.quote(str(ROOT)),
               '# Do not wrap this coordinator in srun/mpirun; the density launcher starts MPI.',
-              shlex.join(["exec", p["driver_python"], "-B", "-m", "polymer_batch.cli", "run", "--site", p["site_config"],
-                          "--work-root", p["work_root"], "--confirm-run", "YES"]) + ' --task-index "$task_index"']
+              shlex.join(command) + suffix]
     return "\n".join(lines) + "\n"
 
 

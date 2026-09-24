@@ -28,6 +28,11 @@ import time
 from typing import Any
 
 from .catalog import load_catalog, select_tasks, task_seed
+from .preparation_handoff import (
+    preparation_evidence as _preparation_evidence,
+    prepared_parent_selector,
+    copy_prepared_parent as _copy_prepared_parent,
+)
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -86,14 +91,21 @@ def _contained(path: Path, root: Path):
     return resolved
 
 
-def _site(path: Path):
+def _site(path: Path, stage="all"):
     if not path.is_absolute():
         raise ValueError("--site must be an absolute JSON path")
     raw = path.read_bytes()
     value = json.loads(raw.decode("utf-8"))
     if not isinstance(value, dict):
         raise ValueError("site JSON must be an object")
-    for name in ("prepare_argv", "density_argv"):
+    if stage not in {"all", "prepare", "density"}:
+        raise ValueError("unknown dispatch stage")
+    if stage == "prepare":
+        preparation = value.get("preparation", {})
+        gpu = preparation.get("gpu", 0) if isinstance(preparation, dict) else None
+        if type(gpu) is not int or gpu != 0:
+            raise ValueError("CPU-only prepare stage requires preparation.gpu=0")
+    for name in (("prepare_argv", "density_argv") if stage == "all" else (stage + "_argv",)):
         argv = value.get(name)
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
             raise ValueError(f"site.{name} must be a nonempty argv array")
@@ -231,6 +243,11 @@ def _summary(task, task_root: Path):
         receipt = _object(attempt / "receipt.json")
         _identity(receipt, task)
         status = receipt.get("status")
+        if status == "PREPARED_QC_PASS":
+            prepared_parent_selector(attempt, task)
+            return {**base, "status": status, "integrity": "VERIFIED",
+                    "execution_stage": "prepare", "classical_qc_status": "PASS",
+                    "pipeline_complete": False, "density_g_cm3": None}
         if status in COMPLETE_STATUSES:
             result = _verify_complete(receipt, task, attempt)
             base.update({key: result.get(key) for key in ("execution_status", "qc_status", "density_g_cm3", "density_standard_error_g_cm3")})
@@ -445,7 +462,8 @@ def _stage(name, argv, attempt, receipt, flag, claim_descriptor):
         _atomic_json(attempt / "receipt.json", receipt)
 
 
-def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor, parent_selector=None):
+def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor, parent_selector=None,
+                 stage="all", prepared_selector=None):
     previous = _attempts(task_root)
     number = previous[-1][0] + 1 if previous else 1
     attempt = task_root / f"attempt_{number:04d}"
@@ -458,6 +476,10 @@ def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor, paren
                "attempt_root": str(attempt), "prepared_manifest_path": str(attempt / "prep" / "prepared.json")}
     if parent_selector is not None:
         request["density_parent_restart"] = parent_selector
+    if stage != "all":
+        request["execution_stage"] = stage
+    if prepared_selector is not None:
+        request["prepared_parent"] = prepared_selector
     _atomic_json(request_path, request)
     receipt = {"schema_version": RECEIPT_SCHEMA, **task, "attempt_id": attempt.name,
                "attempt_root": str(attempt), "status": "RUNNING", "started_at": _now(),
@@ -465,11 +487,19 @@ def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor, paren
                "owner": {"pid": os.getpid(), "hostname": socket.gethostname()},
                "stages": [], "artifacts": {"request": _artifact(request_path)}}
     _atomic_json(attempt / "receipt.json", receipt)
+    if stage != "all":
+        receipt["execution_stage"] = stage
     try:
         for name, key, directory in (("prepare", "prepare_argv", "prep"), ("density", "density_argv", "density")):
+            if stage == "prepare" and name == "density":
+                continue
             if _sha(site_path) != receipt["site_sha256"]:
                 raise ValueError("site configuration changed during this attempt")
-            if name == "prepare" and parent_selector is not None:
+            if name == "prepare" and prepared_selector is not None:
+                if flag.requested:
+                    raise StopRequested("interrupted before CPU preparation intake")
+                _copy_prepared_parent(prepared_selector, task, attempt, receipt)
+            elif name == "prepare" and parent_selector is not None:
                 if flag.requested:
                     raise StopRequested("interrupted before parent preparation intake")
                 _copy_parent_preparation(parent_selector, task, attempt, receipt)
@@ -482,10 +512,16 @@ def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor, paren
                 prepared = attempt / "prep" / "prepared.json"
                 receipt["artifacts"].update(_prepared_inputs(prepared, task, attempt))
                 receipt["artifacts"]["prepared"] = _artifact(prepared)
-        result_path = attempt / "density" / "result.json"
-        result, manifest = _result(result_path, task, attempt)
-        receipt["artifacts"].update(result=_artifact(result_path), run_manifest=_artifact(manifest))
-        receipt["status"] = "COMPLETE_QC_PASS" if result["qc_status"] == "PASS" else "COMPLETE_QC_FAIL"
+                if stage == "prepare":
+                    receipt["artifacts"].update(_preparation_evidence(prepared, task, attempt))
+        if stage == "prepare":
+            receipt.update(status="PREPARED_QC_PASS", pipeline_complete=False,
+                           classical_qc_status="PASS", density_g_cm3=None)
+        else:
+            result_path = attempt / "density" / "result.json"
+            result, manifest = _result(result_path, task, attempt)
+            receipt["artifacts"].update(result=_artifact(result_path), run_manifest=_artifact(manifest))
+            receipt["status"] = "COMPLETE_QC_PASS" if result["qc_status"] == "PASS" else "COMPLETE_QC_FAIL"
     except SamplingStopped as exc:
         receipt.update(status=exc.outcome["code"], error=str(exc),
                        pipeline_complete=False, qc_status="FAIL",
@@ -501,10 +537,13 @@ def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor, paren
             if path.is_file() and not path.is_symlink():
                 receipt["artifacts"].setdefault(label, _artifact(path))
         _atomic_json(attempt / "receipt.json", receipt)
+        if stage == "prepare":
+            (attempt / "receipt.json").chmod(0o444)
     return _summary(task, task_root)
 
 
-def _run_task(task, work_root, site_path, site, flag, retry_failed, continue_density_from=None):
+def _run_task(task, work_root, site_path, site, flag, retry_failed, continue_density_from=None,
+              stage="all", prepared_from=None):
     task_root = work_root / task["task_id"]
     if task_root.is_symlink():
         raise ValueError(f"task directory cannot be a symlink: {task_root}")
@@ -520,7 +559,10 @@ def _run_task(task, work_root, site_path, site, flag, retry_failed, continue_den
         current = _summary(task, task_root)
         if current["status"] in COMPLETE_STATUSES:
             return {**current, "skipped": True}
-        if current["status"] != "NOT_STARTED" and not retry_failed and continue_density_from is None:
+        if current["status"] == "PREPARED_QC_PASS" and stage != "density":
+            return {**current, "skipped": True}
+        handoff_ready = stage == "density" and current["status"] == "PREPARED_QC_PASS"
+        if current["status"] != "NOT_STARTED" and not handoff_ready and not retry_failed and continue_density_from is None:
             return {**current, "skipped": True, "retry_required": True}
         if flag.requested:
             return {"task_id": task["task_id"], "status": "INCOMPLETE", "error": "interrupted before attempt creation"}
@@ -528,7 +570,9 @@ def _run_task(task, work_root, site_path, site, flag, retry_failed, continue_den
         if continue_density_from is not None:
             from thermal_properties.density_parent import smiles_parent_selector
             selector = smiles_parent_selector(continue_density_from, task)
-        return _new_attempt(task, task_root, site_path, site, flag, descriptor, selector)
+        prepared_selector = prepared_parent_selector(prepared_from, task) if stage == "density" else None
+        return _new_attempt(task, task_root, site_path, site, flag, descriptor, selector,
+                            stage, prepared_selector)
     finally:
         os.close(descriptor)
 
@@ -556,6 +600,9 @@ def _parser():
         command.add_argument("--shard-count", type=int)
         if name in {"plan", "run"}:
             command.add_argument("--site", type=Path, required=name == "run")
+            command.add_argument("--stage", choices=("all", "prepare", "density"), default="all")
+            command.add_argument("--prepared-from", type=Path,
+                                 help="verified terminal CPU prepare attempt; required for --stage density")
             command.add_argument("--continue-density-from", type=Path,
                                  help="explicit terminal transition attempt; new identity, no preparation rerun")
         if name in {"run", "status"}:
@@ -573,6 +620,19 @@ def main(argv=None):
             **{key: getattr(args, key) for key in ("task_index", "start", "stop", "shard_index", "shard_count")})
         code = 0
         parent_attempt = getattr(args, "continue_density_from", None)
+        stage = getattr(args, "stage", "all")
+        prepared_from = getattr(args, "prepared_from", None)
+        if stage == "density":
+            if prepared_from is None or len(tasks) != 1 or not prepared_from.is_absolute():
+                raise ValueError("--stage density requires one task and absolute --prepared-from")
+        elif prepared_from is not None:
+            raise ValueError("--prepared-from is only valid for --stage density")
+        if parent_attempt is not None and stage != "all":
+            raise ValueError("--continue-density-from cannot be combined with split --stage")
+        if prepared_from is not None and args.command == "run":
+            destination, parent_root = args.work_root.resolve(), prepared_from.resolve()
+            if destination == parent_root or parent_root in destination.parents:
+                raise ValueError("new work-root must not be inside immutable CPU parent attempt")
         if parent_attempt is not None:
             if len(tasks) != 1 or not parent_attempt.is_absolute():
                 raise ValueError("continue-density-from requires one task and an absolute attempt path")
@@ -587,9 +647,14 @@ def main(argv=None):
             result = {"selected_count": len(tasks), "tasks": tasks, "processes_started": 0}
             if args.command == "plan":
                 result.update(mode="PLAN_ONLY", execution_order="sequential", retry_automatic=False)
+                result["execution_stage"] = stage
                 if args.site is not None:
-                    site = _site(args.site)
-                    result["stage_argv_templates"] = {key: site[key] for key in ("prepare_argv", "density_argv")}
+                    site = _site(args.site, stage=stage)
+                    names = ("prepare_argv", "density_argv") if stage == "all" else (stage + "_argv",)
+                    result["stage_argv_templates"] = {key: site[key] for key in names}
+                if prepared_from is not None:
+                    result.update(prepared_parent=prepared_parent_selector(prepared_from, tasks[0]),
+                                  preparation_action="COPY_VERIFIED_CPU_PARENT_INPUTS")
                 if parent_attempt is not None:
                     from thermal_properties.density_parent import smiles_parent_selector
                     result.update(density_parent_restart=smiles_parent_selector(parent_attempt, tasks[0]),
@@ -600,7 +665,7 @@ def main(argv=None):
             summaries = [_summary(task, root / task["task_id"]) for task in tasks]
             result = {"selected_count": len(tasks), "counts": dict(Counter(item["status"] for item in summaries)), "tasks": summaries}
         else:
-            site = _site(args.site)
+            site = _site(args.site, stage=stage)
             root = _work_root(args.work_root, create=True)
             summaries = []
             flag = StopFlag()
@@ -609,11 +674,13 @@ def main(argv=None):
                     if flag.requested:
                         break
                     try:
-                        summaries.append(_run_task(task, root, args.site.resolve(), site, flag, args.retry_failed, parent_attempt))
+                        summaries.append(_run_task(task, root, args.site.resolve(), site, flag, args.retry_failed,
+                                                   parent_attempt, stage, prepared_from))
                     except (OSError, ValueError, KeyError) as exc:
                         summaries.append({"task_id": task["task_id"], "status": "FAILED", "error": str(exc)})
                     print(f"{task['task_id']}: {summaries[-1]['status']}", file=sys.stderr, flush=True)
-            code = 130 if flag.requested else int(any(item["status"] != "COMPLETE_QC_PASS" for item in summaries))
+            successful = {"COMPLETE_QC_PASS", "PREPARED_QC_PASS"} if stage == "prepare" else {"COMPLETE_QC_PASS"}
+            code = 130 if flag.requested else int(any(item["status"] not in successful for item in summaries))
             result = {"selected_count": len(tasks), "processed_count": len(summaries), "interrupted": flag.requested,
                       "counts": dict(Counter(item["status"] for item in summaries)), "tasks": summaries}
         print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
