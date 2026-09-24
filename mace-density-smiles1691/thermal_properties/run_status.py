@@ -138,6 +138,16 @@ def build_run_status(run_manifest: str | Path) -> dict[str, Any]:
     manifest = _read_object(manifest_path, "run manifest")
     manifest_sha256 = _verify_manifest(manifest_path, manifest)
     run_root = manifest_path.parent.parent.resolve()
+    # New bounded runs must authenticate every prior window, not only the
+    # selected final PASS. Keep legacy summary-only fixtures compatible.
+    if ("resolved_run_spec" in manifest or "sampling_history" in manifest
+            or "sampling_continuation" in manifest
+            or (run_root / "spec/run_spec.json").exists()):
+        from .sampling_continuation import verify_run_sampling_history
+        try:
+            verify_run_sampling_history(run_root, manifest)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ThermalSimulationError(f"invalid bounded sampling evidence: {exc}") from exc
 
     raw_states = manifest.get("state_points")
     if not isinstance(raw_states, list):

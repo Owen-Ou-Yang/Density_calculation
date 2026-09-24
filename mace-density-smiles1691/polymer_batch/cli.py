@@ -18,6 +18,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -32,6 +33,7 @@ from .catalog import load_catalog, select_tasks, task_seed
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 RECEIPT_SCHEMA = "polymer-smiles-attempt-receipt/v1"
 COMPLETE_STATUSES = {"COMPLETE_QC_PASS", "COMPLETE_QC_FAIL"}
+SAMPLING_STATUSES = {"NEEDS_MORE_SAMPLING", "SAMPLING_BUDGET_EXHAUSTED", "SAMPLING_QC_FAILED"}
 _ATTEMPT = re.compile(r"attempt_([0-9]{4,})")
 # The density core owns a separate LAMMPS session and may spend 5 seconds on
 # TERM plus 2 seconds on KILL. Let its adapter finish that nested cleanup.
@@ -233,15 +235,130 @@ def _summary(task, task_root: Path):
             result = _verify_complete(receipt, task, attempt)
             base.update({key: result.get(key) for key in ("execution_status", "qc_status", "density_g_cm3", "density_standard_error_g_cm3")})
             return {**base, "status": status, "integrity": "VERIFIED"}
+        if status in SAMPLING_STATUSES:
+            artifacts = receipt.get("artifacts")
+            required = {"request", "prepared", "input_data", "snapshot_metadata", "sampling_outcome",
+                        "prepare_stdout", "prepare_stderr", "density_stdout", "density_stderr"}
+            if (receipt.get("schema_version") != RECEIPT_SCHEMA
+                    or receipt.get("smiles") != task["smiles"]
+                    or receipt.get("attempt_id") != attempt.name
+                    or receipt.get("attempt_root") != str(attempt.resolve())
+                    or not receipt.get("ended_at")
+                    or not isinstance(artifacts, dict) or not required.issubset(artifacts)):
+                raise ValueError("sampling receipt lacks terminal identity or required artifacts")
+            for record in artifacts.values():
+                if not isinstance(record, dict) or not isinstance(record.get("path"), str):
+                    raise ValueError("invalid sampling artifact record")
+                path = _contained(Path(record["path"]), attempt)
+                if _artifact(path) != record:
+                    raise ValueError("sampling receipt artifact changed")
+            fixed_paths = {"request": "request.json", "prepared": "prep/prepared.json",
+                           "sampling_outcome": "density/sampling_outcome.json",
+                           "prepare_stdout": "prepare.stdout.log", "prepare_stderr": "prepare.stderr.log",
+                           "density_stdout": "density.stdout.log", "density_stderr": "density.stderr.log"}
+            if any(artifacts[key]["path"] != str((attempt / relative).resolve())
+                   for key, relative in fixed_paths.items()):
+                raise ValueError("sampling receipt does not bind expected artifact paths")
+            inputs = _prepared_inputs(attempt / "prep/prepared.json", task, attempt)
+            if any(artifacts[key] != record for key, record in inputs.items()):
+                raise ValueError("sampling receipt does not bind prepared inputs")
+            outcome = _sampling_outcome(attempt, task)
+            if status != outcome["code"] or receipt.get("sampling") != outcome["sampling"]:
+                raise ValueError("sampling receipt/status mismatch")
+            return {**base, "status": status, "integrity": "VERIFIED",
+                    "qc_status": "FAIL", "pipeline_complete": False,
+                    "density_g_cm3": None, "sampling": outcome["sampling"]}
         if status == "FAILED":
             return {**base, "status": "FAILED", "error": receipt.get("error")}
         return {**base, "status": "INCOMPLETE", "error": receipt.get("error")}
-    except (OSError, ValueError, KeyError) as exc:
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         return {**base, "status": "INCOMPLETE", "error": f"integrity check failed: {exc}"}
 
 
 class StopRequested(Exception):
     pass
+
+
+class SamplingStopped(ValueError):
+    def __init__(self, outcome):
+        super().__init__(outcome["code"])
+        self.outcome = outcome
+
+
+def _sampling_outcome(attempt, task):
+    """A special exit code alone is never trusted as a statistical outcome."""
+    from thermal_properties.simulation import verify_sampling_outcome
+    value = _object(attempt / "density" / "sampling_outcome.json")
+    _identity(value, task)
+    if (value.get("schema_version") != "polymer-density-sampling-outcome/v1"
+            or value.get("smiles") != task["smiles"]
+            or value.get("attempt_id") != attempt.name
+            or not isinstance(value.get("code"), str)
+            or value.get("code") not in SAMPLING_STATUSES
+            or value.get("pipeline_complete") is not False
+            or value.get("qc_status") != "FAIL"
+            or value.get("density_g_cm3") is not None
+            or value.get("request_sha256") != _sha(attempt / "request.json")
+            or value.get("config_sha256") != _sha(attempt / "density" / "mace_config.json")):
+        raise ValueError("invalid sampling outcome identity")
+    record = value.get("evidence")
+    if not isinstance(record, dict) or not isinstance(record.get("path"), str):
+        raise ValueError("invalid sampling evidence artifact record")
+    evidence_path = _contained(Path(record["path"]), attempt)
+    if _artifact(evidence_path) != record:
+        raise ValueError("sampling evidence hash/size mismatch")
+    try:
+        evidence = verify_sampling_outcome(evidence_path)
+    except (RuntimeError, KeyError, TypeError) as exc:
+        raise ValueError(f"sampling evidence failed verification: {exc}") from exc
+    if evidence != value.get("sampling") or evidence.get("code") != value["code"]:
+        raise ValueError("sampling evidence contents changed")
+    return value
+
+
+def _copy_verified_record(record, destination):
+    source = Path(record["path"])
+    if _artifact(source) != record:
+        raise ValueError(f"parent artifact changed before copy: {source}")
+    with source.open("rb") as inp, destination.open("xb") as out:
+        shutil.copyfileobj(inp, out)
+        out.flush()
+        os.fsync(out.fileno())
+    copied = _artifact(destination)
+    if copied["sha256"] != record["sha256"] or copied["bytes"] != record["bytes"]:
+        raise ValueError(f"parent artifact changed during copy: {source}")
+    return copied
+
+
+def _copy_parent_preparation(selector, task, attempt, receipt):
+    """Copy only authenticated preparation inputs, never parent trajectories."""
+    records = selector["smiles_evidence"]
+    evidence_dir = attempt / "prep" / "parent_evidence"
+    evidence_dir.mkdir()
+    for label in ("request", "receipt", "prepared"):
+        receipt["artifacts"]["parent_" + label] = _copy_verified_record(
+            records[label], evidence_dir / (label + ".json"))
+    old_receipt = _object(evidence_dir / "receipt.json")
+    prepared = _object(evidence_dir / "prepared.json")
+    _identity(prepared, task)
+    for label, filename in (("input_data", "input.data"), ("snapshot_metadata", "input.snapshot.json")):
+        destination = attempt / "prep" / filename
+        receipt["artifacts"][label] = _copy_verified_record(old_receipt["artifacts"][label], destination)
+        prepared[label] = str(destination)
+    prepared["parent_preparation_reuse"] = {
+        "parent_prepared_sha256": records["prepared"]["sha256"],
+        "preparation_processes_started": 0,
+        "input_bytes_unchanged": True,
+    }
+    _atomic_json(attempt / "prep" / "prepared.json", prepared)
+    for label in ("stdout", "stderr"):
+        log = attempt / ("prepare." + label + ".log")
+        with log.open("x", encoding="utf-8") as handle:
+            if label == "stdout":
+                handle.write("COPIED_VERIFIED_PARENT_PREPARATION; PREPARATION_PROCESSES_STARTED=0\n")
+        receipt["artifacts"]["prepare_" + label] = _artifact(log)
+    receipt["preparation_action"] = "COPIED_VERIFIED_PARENT_INPUTS"
+    _atomic_json(attempt / "receipt.json", receipt)
 
 
 class StopFlag:
@@ -310,6 +427,13 @@ def _stage(name, argv, attempt, receipt, flag, claim_descriptor):
                 _terminate(process)
                 raise StopRequested("interrupted after stage completion")
             if process.returncode != 0:
+                if name == "density" and process.returncode in {75, 76}:
+                    outcome = _sampling_outcome(attempt, receipt)
+                    expected_exit = 76 if outcome["code"] == "SAMPLING_QC_FAILED" else 75
+                    if process.returncode != expected_exit:
+                        raise ValueError("sampling outcome/exit code mismatch")
+                    receipt["artifacts"]["sampling_outcome"] = _artifact(attempt / "density" / "sampling_outcome.json")
+                    raise SamplingStopped(outcome)
                 raise ValueError(f"{name} exited with status {process.returncode}")
     finally:
         if process is not None:
@@ -321,7 +445,7 @@ def _stage(name, argv, attempt, receipt, flag, claim_descriptor):
         _atomic_json(attempt / "receipt.json", receipt)
 
 
-def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor):
+def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor, parent_selector=None):
     previous = _attempts(task_root)
     number = previous[-1][0] + 1 if previous else 1
     attempt = task_root / f"attempt_{number:04d}"
@@ -332,6 +456,8 @@ def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor):
     request = {"schema_version": "polymer-smiles-task/v1", **task,
                "seed": task_seed(task["smiles_sha256"]), "attempt_id": attempt.name,
                "attempt_root": str(attempt), "prepared_manifest_path": str(attempt / "prep" / "prepared.json")}
+    if parent_selector is not None:
+        request["density_parent_restart"] = parent_selector
     _atomic_json(request_path, request)
     receipt = {"schema_version": RECEIPT_SCHEMA, **task, "attempt_id": attempt.name,
                "attempt_root": str(attempt), "status": "RUNNING", "started_at": _now(),
@@ -343,8 +469,13 @@ def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor):
         for name, key, directory in (("prepare", "prepare_argv", "prep"), ("density", "density_argv", "density")):
             if _sha(site_path) != receipt["site_sha256"]:
                 raise ValueError("site configuration changed during this attempt")
-            command = _argv(site[key], request_path, attempt / directory, site_path)
-            _stage(name, command, attempt, receipt, flag, claim_descriptor)
+            if name == "prepare" and parent_selector is not None:
+                if flag.requested:
+                    raise StopRequested("interrupted before parent preparation intake")
+                _copy_parent_preparation(parent_selector, task, attempt, receipt)
+            else:
+                command = _argv(site[key], request_path, attempt / directory, site_path)
+                _stage(name, command, attempt, receipt, flag, claim_descriptor)
             if _sha(site_path) != receipt["site_sha256"]:
                 raise ValueError("site configuration changed during this attempt")
             if name == "prepare":
@@ -355,6 +486,10 @@ def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor):
         result, manifest = _result(result_path, task, attempt)
         receipt["artifacts"].update(result=_artifact(result_path), run_manifest=_artifact(manifest))
         receipt["status"] = "COMPLETE_QC_PASS" if result["qc_status"] == "PASS" else "COMPLETE_QC_FAIL"
+    except SamplingStopped as exc:
+        receipt.update(status=exc.outcome["code"], error=str(exc),
+                       pipeline_complete=False, qc_status="FAIL",
+                       sampling=exc.outcome["sampling"])
     except StopRequested as exc:
         receipt.update(status="INCOMPLETE", error=str(exc))
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
@@ -369,7 +504,7 @@ def _new_attempt(task, task_root, site_path, site, flag, claim_descriptor):
     return _summary(task, task_root)
 
 
-def _run_task(task, work_root, site_path, site, flag, retry_failed):
+def _run_task(task, work_root, site_path, site, flag, retry_failed, continue_density_from=None):
     task_root = work_root / task["task_id"]
     if task_root.is_symlink():
         raise ValueError(f"task directory cannot be a symlink: {task_root}")
@@ -385,11 +520,15 @@ def _run_task(task, work_root, site_path, site, flag, retry_failed):
         current = _summary(task, task_root)
         if current["status"] in COMPLETE_STATUSES:
             return {**current, "skipped": True}
-        if current["status"] != "NOT_STARTED" and not retry_failed:
+        if current["status"] != "NOT_STARTED" and not retry_failed and continue_density_from is None:
             return {**current, "skipped": True, "retry_required": True}
         if flag.requested:
             return {"task_id": task["task_id"], "status": "INCOMPLETE", "error": "interrupted before attempt creation"}
-        return _new_attempt(task, task_root, site_path, site, flag, descriptor)
+        selector = None
+        if continue_density_from is not None:
+            from thermal_properties.density_parent import smiles_parent_selector
+            selector = smiles_parent_selector(continue_density_from, task)
+        return _new_attempt(task, task_root, site_path, site, flag, descriptor, selector)
     finally:
         os.close(descriptor)
 
@@ -417,6 +556,8 @@ def _parser():
         command.add_argument("--shard-count", type=int)
         if name in {"plan", "run"}:
             command.add_argument("--site", type=Path, required=name == "run")
+            command.add_argument("--continue-density-from", type=Path,
+                                 help="explicit terminal transition attempt; new identity, no preparation rerun")
         if name in {"run", "status"}:
             command.add_argument("--work-root", type=Path, required=True)
         if name == "run":
@@ -431,6 +572,17 @@ def main(argv=None):
         tasks = select_tasks(load_catalog(PACKAGE_ROOT / "inputs" / "smiles.csv"),
             **{key: getattr(args, key) for key in ("task_index", "start", "stop", "shard_index", "shard_count")})
         code = 0
+        parent_attempt = getattr(args, "continue_density_from", None)
+        if parent_attempt is not None:
+            if len(tasks) != 1 or not parent_attempt.is_absolute():
+                raise ValueError("continue-density-from requires one task and an absolute attempt path")
+            if getattr(args, "retry_failed", False):
+                raise ValueError("choose continue-density-from or retry-failed, not both")
+            if args.command == "run":
+                destination = args.work_root.resolve()
+                parent_root = parent_attempt.resolve()
+                if destination == parent_root or parent_root in destination.parents:
+                    raise ValueError("new work-root must not be inside the immutable parent attempt")
         if args.command in {"list", "plan"}:
             result = {"selected_count": len(tasks), "tasks": tasks, "processes_started": 0}
             if args.command == "plan":
@@ -438,6 +590,11 @@ def main(argv=None):
                 if args.site is not None:
                     site = _site(args.site)
                     result["stage_argv_templates"] = {key: site[key] for key in ("prepare_argv", "density_argv")}
+                if parent_attempt is not None:
+                    from thermal_properties.density_parent import smiles_parent_selector
+                    result.update(density_parent_restart=smiles_parent_selector(parent_attempt, tasks[0]),
+                                  preparation_action="COPY_VERIFIED_PARENT_INPUTS",
+                                  initialization_action="SKIP_USE_PARENT_CHECKPOINT")
         elif args.command == "status":
             root = _work_root(args.work_root, create=False)
             summaries = [_summary(task, root / task["task_id"]) for task in tasks]
@@ -452,7 +609,7 @@ def main(argv=None):
                     if flag.requested:
                         break
                     try:
-                        summaries.append(_run_task(task, root, args.site.resolve(), site, flag, args.retry_failed))
+                        summaries.append(_run_task(task, root, args.site.resolve(), site, flag, args.retry_failed, parent_attempt))
                     except (OSError, ValueError, KeyError) as exc:
                         summaries.append({"task_id": task["task_id"], "status": "FAILED", "error": str(exc)})
                     print(f"{task['task_id']}: {summaries[-1]['status']}", file=sys.stderr, flush=True)

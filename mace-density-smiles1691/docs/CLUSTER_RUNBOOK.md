@@ -278,6 +278,58 @@ The original QC must pass; runtime errors, nonfinite values and invalid
 structures stop immediately. At the finite budget limit, unresolved QC remains
 failure. Do not relax thresholds or shorten the protocol to fit a queue limit.
 
+For density PILOT, a normally completed MACE window whose only rejection is
+`minimum_effective_samples` may receive 25 ps of additional dynamics within
+the current allocation. The 305 K transition begins at 50 ps and has a 100 ps
+cumulative sampling cap. The 300 K branch retains its 0.1 ps ramp, 5 ps
+equilibration and 25 ps initial sampling, with a separate 100 ps sampling cap.
+Transition extensions use fresh, independently assessed 25 ps windows without
+pooling failed parent transition samples. Target QC accumulates all
+post-equilibration samples at 25, 50, 75 and 100 ps; only the next 25 ps of
+dynamics runs for each extension. Thresholds remain 10 transition / 20 target
+effective samples. This is a prospective policy: keep previous failed QC
+assessments immutable and record each new assessment separately. Runtime/OOM,
+nonfinite, structure, temperature and other or mixed QC failures stop immediately.
+There is no post-hoc burn-in trimming or
+change to full-trajectory safety gates.
+
+An existing eligible terminal transition requires an explicit single-task
+selection. Inspect the parent evidence and confirm its worker has ended, then
+perform the offline check:
+
+```bash
+python -m polymer_batch.cli plan --task-index 1 \
+  --site /absolute/path/site.json \
+  --continue-density-from /absolute/path/old_results/S000001/attempt_0001
+```
+
+Inside a permitted compute allocation with sufficient remaining walltime:
+
+```bash
+python -m polymer_batch.cli run --task-index 1 \
+  --site /absolute/path/site.json \
+  --work-root /absolute/path/private_results \
+  --continue-density-from /absolute/path/old_results/S000001/attempt_0001 \
+  --confirm-run YES
+```
+
+The new attempt preserves the parent, verifies parent/request/SMILES, snapshot
+and model identities, copies verified prepared inputs, and skips preparation
+and MACE initialization to continue at the saved transition endpoint. Current
+cross-attempt selection supports transition endpoints only, not terminal 300 K
+target branches. Parent sampling counts toward the cap. Keep every failed
+window/sample segment, restart, QC result, lineage and budget record for private
+handoff.
+The ordinary array renderer does not select a continuation parent; run this
+single-task command only for the assigned parent within the reviewed allocation.
+Neither offline validation nor a newly rendered bundle authorizes additional
+resources or proves scientific acceptance.
+
+`NEEDS_MORE_SAMPLING`, `SAMPLING_BUDGET_EXHAUSTED` and `SAMPLING_QC_FAILED`
+are non-passing sampling outcomes. Exhaustion is a terminal result of the
+finite budget. No policy, CLI command or helper invokes `qsub`/`sbatch` or
+automatically requests another allocation.
+
 The batch skips verified completed tasks when rerun and does not silently retry
 failed or incomplete tasks. Any explicit `--retry-failed` requires a reviewed
 task-specific reason, confirmation that no worker is active, and a new resource

@@ -12,14 +12,14 @@
       "sha256": "ece7338270ace7f8104cd5b0964c91bd364e170b25c0d825a5fbe83bd1a8c7b1"
     },
     {
-      "bytes": 10408,
+      "bytes": 14691,
       "path": "README.md",
-      "sha256": "9c672ef23018aae3162f63ee48ffbf22837a1d77e562b9e4f457371b243f8a85"
+      "sha256": "e0ffad9a47bcdf5deab8c49b4c7d9d47a7c4d7cdb32409ae03b2a8564c60cf9b"
     },
     {
-      "bytes": 6449,
+      "bytes": 9819,
       "path": "VALIDATION.md",
-      "sha256": "1fb7b867b7e84353ab5b3c69243444eeb94ddfd7aa93c79ab466725d9c988086"
+      "sha256": "c4a8a1e0046f59795c926a878b5d5767402e10a9da7ee434f20f5c7505d25011"
     },
     {
       "bytes": 78,
@@ -27,9 +27,9 @@
       "sha256": "aaf92e67398d55d09a58e4d7529694d0ed0644e025279bb7812ca2d8718802ca"
     },
     {
-      "bytes": 8884,
+      "bytes": 10594,
       "path": "adapters/mace_density.py",
-      "sha256": "268dc6204543b2dcea2f663d83267a09ee750cb5bc6b915d80c116f7f1907c06"
+      "sha256": "5fb01fd95498233676c6a24bfac07aa9fffc6b967e67f34e1b1e9814fe48b4b3"
     },
     {
       "bytes": 33190,
@@ -37,14 +37,14 @@
       "sha256": "f8a93284ade34c7e716d46a14f7551d9035b760bed4644c5f0338dea400390bf"
     },
     {
-      "bytes": 1688,
+      "bytes": 1808,
       "path": "configs/protocol.json",
-      "sha256": "c5076458dd054ee489805346de76ab54d9d9b6bdaf1c72c0de8a46ea7febef6c"
+      "sha256": "514473ae24369ae848f096b93b8db1a90c0089a96de6b99701ee06d03374f5ee"
     },
     {
-      "bytes": 17351,
+      "bytes": 20041,
       "path": "docs/CLUSTER_RUNBOOK.md",
-      "sha256": "ac3310dae0b7c69f87aa5baae7852f9ae05077c7deb1cfb645953c5bf933e1d8"
+      "sha256": "0804dbe51f79bca1f1add8c1cf91cf2247fdffda31ff9997a01fa76a87ca901e"
     },
     {
       "bytes": 3003,
@@ -62,9 +62,9 @@
       "sha256": "c6feebced99caf9a376f101e8c5a8500a79cde8823a109b98b3690ae390b9de3"
     },
     {
-      "bytes": 3978,
+      "bytes": 6865,
       "path": "docs/TROUBLESHOOTING.md",
-      "sha256": "50beeb5b028da307a1334e280d9f66a24fe9ec143c3927fab897fa7dd6f865a8"
+      "sha256": "3c622a3909bcdc3a12f0dbb6aa89fd9c4b7182da130dbbbf57c5fb9cea615bc7"
     },
     {
       "bytes": 649,
@@ -117,9 +117,9 @@
       "sha256": "2c5bbfb868e66c0302f53954a8bedcc677699d6fdba5a6561968c091d29f8b0d"
     },
     {
-      "bytes": 21742,
+      "bytes": 31244,
       "path": "polymer_batch/cli.py",
-      "sha256": "8a3753531e505592c0e47b4c216a69868108d574c6a3d6a5d16b84cc439dd1ea"
+      "sha256": "1976c3719aa26b9cda9babad1525987463a4d22b4df60257521f4a7d2597513b"
     },
     {
       "bytes": 108,
@@ -157,9 +157,24 @@
       "sha256": "262b4e9e4b06e3199ed742167230929b8edb29d510e37add4277f90e1a11517d"
     },
     {
+      "bytes": 9802,
+      "path": "tests/test_sampling_batch_integration.py",
+      "sha256": "27d65f8d637c6b946fde67d3e14965b91242e8c6694c7881779f9d9e3c3156e6"
+    },
+    {
+      "bytes": 15328,
+      "path": "tests/test_sampling_continuation.py",
+      "sha256": "bf0866008e4cfb2b345226433b5685d5b73fbfd17921e843c285d4412cc55101"
+    },
+    {
       "bytes": 5133,
       "path": "tests/test_site_tools.py",
       "sha256": "cf99ebf1e9befb5d509b073a5e1c0969d11141f251d0aec13d52427831ec459a"
+    },
+    {
+      "bytes": 21496,
+      "path": "tests/test_smiles_parent_intake.py",
+      "sha256": "bb1f0099c7a8c46816a7e7b3f4150ebabaaa30b3345fdf1633903169aed95439"
     },
     {
       "bytes": 10680,
@@ -197,11 +212,6 @@
       "sha256": "d13e4486c00cf08db6c979bf8f8094b6c789f3ade57e6b4ad3801d0d00e380a0"
     },
     {
-      "bytes": 15160,
-      "path": "thermal_properties/config.py",
-      "sha256": "6f972bdcd342296f4a32cffa947fc0069d5563b8d573f7125106ffe4b7944774"
-    },
-    {
       "bytes": 1058,
       "path": "thermal_properties/config/density_qc_v1.json",
       "sha256": "0c7985f7ea17242b5278ba0256f4dc6655cc818ae52bae59188dc750b20550c0"
@@ -217,9 +227,14 @@
       "sha256": "44d2b437a2b04582463bde68eab1556f4d751d24bcb4615aca7a3d76d614f52b"
     },
     {
-      "bytes": 17619,
+      "bytes": 15160,
+      "path": "thermal_properties/config.py",
+      "sha256": "6f972bdcd342296f4a32cffa947fc0069d5563b8d573f7125106ffe4b7944774"
+    },
+    {
+      "bytes": 35582,
       "path": "thermal_properties/density_parent.py",
-      "sha256": "4b1f4744c7131d4155c9c4afce388b74f8ca03f2f9f0a0347fbf17ffc78f2cce"
+      "sha256": "0076359cb6e6bc6b706d567ed95f7ee0ed959921233040458846f97d935a3bd7"
     },
     {
       "bytes": 4621,
@@ -257,14 +272,19 @@
       "sha256": "559e0bde08620b5a11c243ec507d0fb669c0ccca82f0ce8ab20dad1109507089"
     },
     {
-      "bytes": 9113,
+      "bytes": 9741,
       "path": "thermal_properties/run_status.py",
-      "sha256": "f00fe644316b16164e31891be3655aed7e7d62041226d6d84087f4c2048fffd5"
+      "sha256": "005068a29fa143ea41a04d0b25e6382c273f6886d379300c1d0dc879c968ad53"
     },
     {
-      "bytes": 212476,
+      "bytes": 24806,
+      "path": "thermal_properties/sampling_continuation.py",
+      "sha256": "2c06892780da1e55a1c79d7da1566395b76947f35f4468ed7c890d7575d4956c"
+    },
+    {
+      "bytes": 219388,
       "path": "thermal_properties/simulation.py",
-      "sha256": "aedb83931d278413f7b934a246e01dd4b753d14b98482bfa1adac1ec8a15dde9"
+      "sha256": "99b00c6fa34b273270b685c4425ecf29c026028d0993ca2a8ab1224331b79562"
     },
     {
       "bytes": 12490,
@@ -300,7 +320,7 @@
   "model_weights_included": false,
   "prior_results_included": false,
   "real_end_to_end_acceptance": "PENDING",
-  "revision": "bounded-equilibration-v2-cluster-interface-20260922",
+  "revision": "bounded-density-sampling-20260923",
   "schema_version": "public-smiles-compute-release/v1",
   "smiles_count": 1691,
   "starting_structures_included": false

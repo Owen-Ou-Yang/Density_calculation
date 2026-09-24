@@ -15,8 +15,9 @@ Original SMILES → chain / packing / classical equilibration
 ```
 
 **Release status: engineering tests are available; full real SMILES-to-MACE
-acceptance is not yet complete.** A single-input continuation has passed
-classical QC and reached MACE, but this is not a final validated density.
+acceptance is not yet complete.** A single-input continuation passed
+classical QC and reached MACE, but transition sampling did not satisfy the
+effective-sample requirement. This is not a final validated density.
 This catalog is not chemically prescreened, and not every entry is guaranteed
 to build or converge. See the dated [validation record](mace-density-smiles1691/VALIDATION.md).
 
@@ -81,6 +82,32 @@ Real preparation and MACE sampling can take days for a single system depending
 on its size, convergence and hardware. Budget walltime, CPU/GPU memory and disk
 space from a representative task; there is no universal hours-per-polymer promise.
 
+### CRC resources and estimated GPU-hours
+
+The supplied [SGE profile](mace-density-smiles1691/examples/cluster.sge.json)
+requests `gpu@@zabaras_rtx6k`, 4 GPUs, `smp` 16 CPU slots and a 144-hour
+walltime limit. The MACE launcher uses 4 MPI ranks with 4 threads per rank.
+The default profile selects one task with concurrency one; it is not an
+instruction to launch the whole catalog. Confirm GPU model/memory and scheduler
+policy on the actual allocated node. The 144 hours is a limit, not an estimate.
+
+There is no calibrated automatic GPU-hour estimator for all 1,691 inputs.
+Report **allocated GPU-hours = allocated GPU count × running wall-clock hours**
+separately from **MACE-stage GPU-hours = GPU count × MACE-stage hours**. The
+current single-allocation pipeline reserves GPUs during CPU classical
+preparation as well; allocated hours do not measure GPU utilization or necessarily
+equal the site's billing charge. Queue waiting is not execution time.
+From a representative task, estimate extra sampling as
+`GPU count × measured hours/ps × additional ps`, keeping preparation, initialization,
+equilibration, failed attempts and storage budgets explicit. Different cell
+sizes, chemistries and convergence histories require separate measurements.
+
+**Scale readiness:** array/sharding and bounded continuation are implemented,
+but the new continuation has not yet passed a real complete SMILES-to-300 K
+density acceptance run. Use single-task qualification, then a small representative
+batch before a large assigned range. CPU tests and the catalog size are not
+evidence that all entries will complete or yield production-quality densities.
+
 ## What is public?
 
 | Included | Not included |
@@ -96,6 +123,21 @@ Keep output directories **outside the entire repository**, not only outside
 the package subdirectory. See [data boundary](mace-density-smiles1691/docs/DATA_BOUNDARY.md).
 
 ## Interpretation
+
+Density PILOT sampling has a prospective bounded continuation policy: only an
+isolated `minimum_effective_samples` rejection can trigger 25 ps of additional
+dynamics. After the initial 50 ps at 305 K, transition extensions are assessed
+as fresh 25 ps windows, with a 100 ps total transition cap. At 300 K,
+post-equilibration samples accumulate for QC at 25, 50, 75 and 100 ps; each
+extension runs only the next 25 ps. Thresholds remain 10 transition / 20 target
+effective samples. Runtime, nonfinite, structure, temperature or other/mixed
+QC failures stop continuation. Previous QC records are preserved unchanged.
+
+An existing eligible failed transition can be selected explicitly for a new
+attempt; see [continuation commands](mace-density-smiles1691/README.md#bounded-mace-sampling-continuation).
+The parent and its failed windows remain immutable. No scheduler submission or
+resubmission is automatic. This revision changes engineering behavior; it does
+not establish a real accepted density or change full-trajectory safety gates.
 
 The final reported quantity is the **MACE 300 K sampling density**, never the
 classical preparation density. `COMPLETE_QC_PASS` plus `integrity=VERIFIED`

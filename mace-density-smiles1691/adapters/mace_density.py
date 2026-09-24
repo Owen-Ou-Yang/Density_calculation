@@ -113,11 +113,20 @@ def build_config(request, prepared, site, output):
                                                   for x in settings.get("runtime_dependencies", [])]
     config["output_root"] = str(output / "native_runs")
     config["replicas"] = [{"replica_id": "packing_001", "seed": request["seed"]}]
+    if "density_parent_restart" in request:
+        # Explicit, hash-pinned endpoint intake. The original preparation is
+        # copied by the dispatcher, not recomputed, and core intake checks the
+        # checkpoint, SMILES/catalog identity, model and original snapshot.
+        config["density_parent_restart"] = copy.deepcopy(request["density_parent_restart"])
+        config["initialize"]["mace_transition_npt_ps"] = config["sampling_continuation"]["increment_ps"]
     return config
 
 
 def run(request_path, output, site_path):
-    from thermal_properties.simulation import execute_thermal_campaign, resolve_thermal_config
+    from thermal_properties.simulation import (
+        SamplingNotConvergedError, execute_thermal_campaign, resolve_thermal_config,
+        verify_sampling_outcome,
+    )
     from thermal_properties.run_status import build_run_status
     request_path = absolute_file(request_path, "request")
     site_path = absolute_file(site_path, "site")
@@ -135,8 +144,28 @@ def run(request_path, output, site_path):
     config_path = output / "mace_config.json"
     write_new(config_path, config)
     resolve_thermal_config(config_path)
-    run_id = request["task_id"] + "_" + request["attempt_id"]
-    manifest_path = execute_thermal_campaign(config_path, run_id=run_id)
+    from thermal_properties.density_parent import smiles_native_run_id
+    # A new work root also starts at attempt_0001. The shared naming rule
+    # binds endpoint recovery to its new request instead of its parent's ID.
+    run_id = smiles_native_run_id(request, request_path)
+    try:
+        manifest_path = execute_thermal_campaign(config_path, run_id=run_id)
+    except SamplingNotConvergedError as exc:
+        evidence = verify_sampling_outcome(exc.record_path)
+        write_new(output / "sampling_outcome.json", {
+            "schema_version": "polymer-density-sampling-outcome/v1",
+            "task_id": request["task_id"], "smiles": request["smiles"],
+            "smiles_sha256": request["smiles_sha256"],
+            "attempt_id": request["attempt_id"],
+            "request_sha256": sha(request_path), "config_sha256": sha(config_path),
+            "code": exc.code, "qc_status": "FAIL", "pipeline_complete": False,
+            "density_g_cm3": None,
+            "evidence": {"path": str(exc.record_path.resolve()),
+                         "sha256": sha(exc.record_path),
+                         "bytes": exc.record_path.stat().st_size},
+            "sampling": evidence,
+        })
+        return 75 if exc.code in {"NEEDS_MORE_SAMPLING", "SAMPLING_BUDGET_EXHAUSTED"} else 76
     status = build_run_status(manifest_path)
     # Only the final 300 K property branch may supply the density. Never substitute
     # RadonPy preparation density or the 305 K MACE transition value.

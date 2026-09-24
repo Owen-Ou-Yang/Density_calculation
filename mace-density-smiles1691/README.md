@@ -45,7 +45,9 @@ If their SMILES occur in this catalog they are ordinary entries here.
    segments, up to 50 ns total by default. It stops at the first QC PASS;
    execution, nonfinite-value or structure errors stop immediately.
 2. **MACE density screening**: use that newly prepared structure with the
-   existing density execution core and unchanged numerical/QC settings.
+   density execution core and unchanged model, timestep and QC thresholds.
+   ESS-only rejection can receive bounded additional sampling
+   under the [sampling continuation policy](#bounded-mace-sampling-continuation).
 3. **Record the outcome**: preserve original SMILES identity, parameters,
    preparation evidence, run manifest, QC and per-task logs.
 
@@ -161,7 +163,8 @@ old evidence stays intact. This is task-level continuation, not an MD restart
 resume. Within a new preparation attempt, bounded classical equilibration
 extensions are automatic; they are not scheduler resubmissions. Every segment
 has separate immutable execution/QC records. QC-negative completed MACE tasks
-remain QC-negative and are not auto-rerun.
+remain QC-negative; an eligible transition needs the explicit continuation
+selection below to create another attempt.
 
 ```bash
 python -B -m polymer_batch.cli status \
@@ -175,6 +178,77 @@ Each summary retains all catalog tasks. Unstarted/failed tasks have missing
 density, not zero. Completed target-window estimates retain their QC label.
 Do not publish the result CSV or generated run folders in this code repository.
 
+## Bounded MACE sampling continuation
+
+The density PILOT protocol prospectively includes `sampling_continuation` with
+`increment_ps=25`, `max_transition_ps=100` and `max_density_ps=100`.
+Continuation is eligible only when a window completes normally and
+`minimum_effective_samples` is its **only** failed QC check. Thresholds remain
+10 effective samples for transition and 20 for target sampling.
+
+| Stage | Initial sampling | QC after each 25 ps extension | Cumulative sampling cap |
+| --- | --- | --- | --- |
+| 305 K transition | 50 ps | Fresh 25 ps window, assessed independently | 100 ps |
+| 300 K density | 25 ps after the existing 0.1 ps ramp and 5 ps equilibration | All post-equilibration samples: 25, 50, 75, then 100 ps | 100 ps |
+
+Each extension starts at the verified preceding endpoint and runs only 25 ps
+of new dynamics. A transition extension receives QC on its fresh 25 ps window;
+it does not pool the earlier failed transition samples or initial relaxation.
+At 300 K, the sampling dataset instead grows cumulatively after the prescribed
+equilibration, and QC is recomputed at 25, 50, 75 and 100 ps. The target ramp
+and equilibration are not repeated for each extension. The budget counts the
+initial and additional sampling, including that consumed by a parent attempt.
+This is a finite sampling budget, not a promise that any assessment will pass.
+
+Runtime failures, OOM, nonfinite values, invalid structures, temperature
+violations, and other or mixed QC failures stop immediately. The sampling
+outcomes `NEEDS_MORE_SAMPLING`, `SAMPLING_BUDGET_EXHAUSTED` and
+`SAMPLING_QC_FAILED` do not indicate QC PASS. All failed windows and their
+execution/QC records, restart endpoints, identities and budget history remain
+available for inspection; a later passing assessment does not rewrite them.
+The policy is defined for new continuation runs; it does not retroactively
+reclassify an earlier failed result. Each cumulative target assessment also
+keeps its own QC record and the identities of the contributing sample segments.
+
+For an existing eligible terminal transition, validate one explicit parent
+attempt offline, using the matching site configuration:
+
+```bash
+python -m polymer_batch.cli plan --task-index 1 \
+  --site /absolute/path/site.json \
+  --continue-density-from /absolute/path/old_results/S000001/attempt_0001
+```
+
+Then run within a permitted compute allocation:
+
+```bash
+python -m polymer_batch.cli run --task-index 1 \
+  --site /absolute/path/site.json \
+  --work-root /absolute/path/private_results \
+  --continue-density-from /absolute/path/old_results/S000001/attempt_0001 \
+  --confirm-run YES
+```
+
+This creates a new attempt, preserving the parent. It verifies parent/request,
+task/SMILES, snapshot and model identities, copies verified prepared inputs,
+and skips preparation and MACE initialization before continuing from the saved
+transition endpoint. The selector currently accepts transition endpoints only;
+it is not an entrypoint for an already terminal 300 K target branch. Offline
+planning does not execute chemistry, MD or a scheduler, and does not establish
+that the installed GPU runtime or scientific calculation will pass.
+
+Within a running attempt, eligible extensions use the current allocation.
+Neither this selector nor budget exhaustion triggers `qsub`, `sbatch` or
+automatic resubmission. Confirm the old worker has ended and allocate enough
+remaining walltime before running an explicit continuation. The cluster array
+renderer does not select a parent attempt; use this single-task command inside
+the allocation. Do not combine it with a whole-catalog retry.
+
+The full trajectory remains subject to the existing safety gates. A future
+burn-in analysis would need its own stated protocol; this revision does not
+trim early samples after seeing QC results or change QC thresholds or safety
+policy. Cumulative target analysis follows the sampling rule defined above.
+
 ## Scientific scope
 
 This release delegates preparation to the collaborator; it does not certify
@@ -186,8 +260,10 @@ even when the builder uses a separate internal representation.
 The MACE stage remains a single-packing **PILOT / screening** calculation:
 fixed-box minimization, 1 ps NVT at 305 K, 50 ps transition NPT at 305 K, then
 0.1 ps ramp, 5 ps equilibration and 25 ps sampling at 300 K / 1.01325 bar;
-timestep 0.25 fs. A blocked transition does not yield a target density. Only
-the 300 K sampling branch is summarized. The classical preparation density
+timestep 0.25 fs. Only the ESS-only continuation described above can add
+transition validation windows or cumulative target sampling within its fixed
+caps. A blocked transition does not yield a target density. Only the 300 K
+sampling branch is summarized. The classical preparation density
 is never substituted as a MACE prediction. QC PASS is not experimental accuracy
 or full material-level convergence.
 
