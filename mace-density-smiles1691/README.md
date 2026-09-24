@@ -116,6 +116,10 @@ Use the generated full command, not bare submission of `job.sh`. Start with
 one task, then scale within the agreed GPU/CPU/storage budget. Offline validation
 does not establish runtime or scientific qualification.
 
+For the reference CRC hardware, separate CPU/GPU resource requests and a
+measured-versus-extrapolated time budget, see
+[CRC configuration and compute cost](docs/CRC_RESOURCES_AND_COST.md).
+
 ## Run the entire catalog
 
 For CPU preparation without holding GPU resources, use the

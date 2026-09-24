@@ -139,8 +139,14 @@ continues an already executed MACE transition checkpoint; do not combine them.
 Split allocation removes GPU reservation during CPU preparation. It does not
 make MACE faster, reduce the required effective sample count, or guarantee that
 a polymer will build/converge. There may be a second queue wait between phases.
-Report CPU core-hours separately from GPU-hours; GPU-hours for the split path
+Report allocated CPU-slot-hours separately from GPU-hours; GPU-hours for the split path
 start at the density allocation, not the CPU job's start time.
+
+The [CRC resource and cost reference](CRC_RESOURCES_AND_COST.md) gives a
+single-case example: about 43 h of measured preparation at 16 slots, and a
+conditional 59–150 h MACE estimate at four GPUs. The latter is not a measured
+successful density run or a catalog-wide forecast. Supporting CPU slots during
+the GPU phase also count toward the resource budget.
 
 The split GPU examples request **192 hours (8 days)**; the separate CPU
 preparation examples remain at 144 hours. These are requested resource budgets,

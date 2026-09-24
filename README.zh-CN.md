@@ -107,7 +107,7 @@ python -B tools/cluster.py render --profile /shared/project/density-private/clus
 运行时间取决于原子数、经典收敛和 GPU 条件，可能需要数天；不要承诺每种材料
 几小时完成。先测一条任务的耗时和存储增长，再规划大规模预算。
 
-## CRC 配置与 GPU 小时预算
+## CRC 配置与 CPU／GPU 时间预算
 
 仓库的旧版合并式 [SGE 示例](mace-density-smiles1691/examples/cluster.sge.json)申请
 `gpu@@zabaras_rtx6k` 队列、4 张 GPU、`smp` 16 个 CPU slots，walltime 上限
@@ -119,13 +119,27 @@ python -B tools/cluster.py render --profile /shared/project/density-private/clus
 改为申请 **192 小时（8 天）**，经典准备另用 CPU 作业。
 提交前须确认所选队列允许该时长；这不是全部 polymer 都能按时完成的保证。
 
+以历史上约 **3,600 原子、4 张 Quadro RTX 6000** 的体系作参考：
+
+| 阶段 | 推荐分阶段资源 | 大致实际耗时／估算耗时 | 资源占用小时 |
+| --- | --- | --- | --- |
+| 经典准备 | 16 个 CPU slots，0 GPU | 约 **43 小时**，历史 CPU/GPU 节点实测 | 约 **690 CPU-slot-hours** |
+| MACE 密度 | 4 GPU + 16 CPU slots；4 MPI × 4 线程 | 约 **59–150 小时**，由实测过渡速度外推 | 约 **236–600 GPU-hours**，另占 **940–2,400 CPU-slot-hours** |
+
+MACE 下限对应各初始窗口通过，上限对应用尽当前有限采样预算，**不是已经成功
+跑完的端到端耗时**：历史上只完成了约 37 小时的初始化／过渡，尚未进入最终
+300 K 密度阶段。新的 CPU 队列速度可能不同；排队、额外 I/O 和分析开销另计，
+用尽预算也不保证 QC 通过。这一例子的准备加 MACE 条件估算约为 **4.3–8 天**，
+不能当作所有 polymer 的固定耗时。
+完整配置、软件版本和计算口径见[CRC 配置与算力预算](mace-density-smiles1691/docs/CRC_RESOURCES_AND_COST.md)。
+
 目前没有对全部 1,691 条输入校准过的自动 GPU-hours 估算器。预算应区分：
 
 - **占用 GPU-hours = 分配 GPU 数 × 作业实际运行小时数**。
 - **MACE 阶段 GPU-hours = GPU 数 × MACE 阶段小时数**。
 - 追加采样估算：`GPU 数 × 同类体系实测小时/ps × 新增 ps`。
 
-当前准备与 MACE 在同一个 allocation 中顺序执行，CPU 经典准备期间也保留
+旧版合并方式将准备与 MACE 放在同一个 allocation 中顺序执行，CPU 经典准备期间也保留
 GPU，因此资源占用不等于 GPU 实际繁忙时间，也不一定等于集群计费口径。
 排队时间不计作计算时间；初始准备、初始化／平衡、失败尝试和存储需要单独计入。
 不能用一个小体系的速度直接保证所有 polymer 的成本。

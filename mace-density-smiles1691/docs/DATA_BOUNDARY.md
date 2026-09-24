@@ -8,7 +8,7 @@ chemical filtering, or validity screening changed this list.
 ## Deliberately excluded
 
 - Experimental density values, experimental source tables and comparison plots.
-- Previous classical or MACE numerical results, receipts and run histories.
+- Previous classical or MACE scientific numerical results, receipts and raw run histories.
 - All former 15-polymer starting structures, any other structures or trajectories.
 - Model weights, compiled binaries, environment archives, private site paths,
   credentials, SSH configuration or Git history.
@@ -17,6 +17,12 @@ chemical filtering, or validity screening changed this list.
 This is an input-catalog release, not a guarantee that source SMILES alone
 determines molecular weight, tacticity, temperature history or experimental
 conditions. Generated structures/results belong in the private work root.
+
+The owner-authorized [CRC resource guide](CRC_RESOURCES_AND_COST.md) includes
+coarse hardware, software-layout and elapsed-time summaries for compute planning.
+These limited performance summaries are not a release of density values, raw
+logs, structures, experimental labels or execution receipts. Estimated budgets
+are labeled separately from measured partial-run costs.
 
 ## Before publication
 

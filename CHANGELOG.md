@@ -1,5 +1,17 @@
 # Changelog
 
+## CRC resource and compute-budget documentation — 2026-09-24
+
+- Publish the reference four-GPU / 16-slot layout and separate CPU preparation
+  profile, with concise English/Chinese README tables and a detailed cost guide.
+- Separate measured partial-run times from the conditional 59–150 h MACE
+  estimate, and account for supporting CPU slots and idle reserved GPU-hours.
+- Clarify that 192 hours is a requested limit, queue approval is unverified,
+  and a single-case estimate is not a catalog-wide runtime or QC guarantee.
+- Documentation/inventory only: no scientific settings, runtime, SMILES,
+  launcher or scheduler examples changed. No private density values, raw
+  evidence, credentials or model weights are published.
+
 ## Separate CPU preparation and GPU density allocations — 2026-09-24
 
 - Add explicit `prepare` and `density` execution stages; preserve legacy `all`.

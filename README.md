@@ -82,7 +82,7 @@ Real preparation and MACE sampling can take days for a single system depending
 on its size, convergence and hardware. Budget walltime, CPU/GPU memory and disk
 space from a representative task; there is no universal hours-per-polymer promise.
 
-### CRC resources and estimated GPU-hours
+### CRC resources and estimated CPU/GPU time
 
 The legacy combined [SGE profile](mace-density-smiles1691/examples/cluster.sge.json)
 requests `gpu@@zabaras_rtx6k`, 4 GPUs, `smp` 16 CPU slots and a 144-hour
@@ -96,10 +96,26 @@ instead requests **192 hours (8 days)**, with CPU preparation in a separate
 allocation. Confirm that the chosen queue permits this request; it is not a
 catalog-wide runtime guarantee.
 
+For a historical **approximately 3,600-atom** reference cell on **4 x Quadro
+RTX 6000** GPUs, use this conditional planning example:
+
+| Phase | Resources in the recommended split | Elapsed time | Allocated resource-hours |
+| --- | --- | --- | --- |
+| Classical preparation | 16 CPU slots, zero GPUs | About **43 h**, observed on the historical CPU/GPU node | About **690 CPU-slot-hours** |
+| MACE density | 4 GPUs and 16 CPU slots; 4 MPI ranks x 4 threads | About **59–150 h**, extrapolated from measured transition speed | About **236–600 GPU-hours**, plus **940–2,400 CPU-slot-hours** |
+
+The MACE range spans initial-window success through the full bounded sampling
+budget. It is **not a measured successful end-to-end runtime**: only about 37 h
+of initialization/transition was actually completed, and the final 300 K density
+stage was not reached. CPU-queue performance may differ. Queue waits, extra I/O
+and analysis overhead are additional; QC success is not guaranteed. See the
+[CRC configuration and compute-budget guide](mace-density-smiles1691/docs/CRC_RESOURCES_AND_COST.md)
+for the reference software, arithmetic, measured/estimated distinction and limits.
+
 There is no calibrated automatic GPU-hour estimator for all 1,691 inputs.
 Report **allocated GPU-hours = allocated GPU count × running wall-clock hours**
 separately from **MACE-stage GPU-hours = GPU count × MACE-stage hours**. The
-current single-allocation pipeline reserves GPUs during CPU classical
+legacy single-allocation pipeline reserves GPUs during CPU classical
 preparation as well; allocated hours do not measure GPU utilization or necessarily
 equal the site's billing charge. Queue waiting is not execution time.
 From a representative task, estimate extra sampling as
