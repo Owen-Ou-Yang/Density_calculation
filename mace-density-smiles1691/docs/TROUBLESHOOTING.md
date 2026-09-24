@@ -30,6 +30,53 @@ Nonzero engine exit, nonfinite quantities or damaged structures stop preparation
 immediately. Fix only a reproduced execution problem before authorizing a new
 attempt. A completed-but-QC-negative MACE task is not automatically retried.
 
+## MACE completes but effective sampling is insufficient
+
+Read the failed checks, not only the engine's exit code. Only a sole
+`minimum_effective_samples` failure is eligible for bounded density PILOT
+continuation. A transition must still meet 10 effective samples; the 300 K
+target window must meet 20. No threshold is reduced.
+
+The initial 305 K transition is 50 ps and may receive 25 ps validation windows
+up to 100 ps cumulative transition sampling. Each fresh transition extension
+is assessed independently, without pooling failed parent transition samples.
+The target branch keeps its 0.1 ps ramp, 5 ps equilibration and first 25 ps
+sampling window. It adds only 25 ps of new dynamics per extension, then uses
+all cumulative post-equilibration samples for QC at 25, 50, 75 and 100 ps.
+Every extension starts from the verified preceding endpoint. These distinct
+rules are prescribed prospectively; they do not rewrite an earlier result.
+Old attempts, sample segments, QC assessments, restarts and consumed-budget
+history remain immutable, including earlier ESS-negative target assessments.
+
+`NEEDS_MORE_SAMPLING` denotes eligible insufficient sampling within the budget;
+`SAMPLING_BUDGET_EXHAUSTED` means no permitted window remains;
+`SAMPLING_QC_FAILED` means the QC result is not eligible for ESS-only
+continuation. None is QC PASS. Runtime/OOM, nonfinite, structure or temperature
+errors and other/mixed QC failures stop immediately. They must not be treated
+as insufficient sampling merely because ESS also failed.
+
+For a completed eligible transition, use the explicit single-task
+[`--continue-density-from` plan/run commands](../README.md#bounded-mace-sampling-continuation).
+Planning validates the selected parent and site offline; execution requires a
+permitted allocation and an ended parent worker. A new attempt copies verified
+prepared inputs and skips preparation/initialization. The current selector
+accepts transition endpoints only, not an already terminal 300 K target branch.
+Do not use `--retry-failed` as a substitute for selecting that endpoint or
+manually edit receipts, model identities or consumed budgets.
+
+The policy does not resubmit a scheduler job. Do not launch a new task merely
+because its predecessor vanished from the scheduler. Inspect terminal evidence,
+active claims and the remaining sampling/resource budgets first.
+
+## Can early transient samples be trimmed to pass QC?
+
+Not under this revision. The existing full-trajectory safety gates continue to
+check runtime, finite values, structure and temperature. A late stable-looking
+region does not erase an earlier safety violation. Fresh transition windows
+and cumulative post-equilibration target assessments are defined in advance;
+neither permits post-hoc cuts of a failed window. Any future burn-in analysis
+needs a separate stated protocol and cannot relabel this run's failed QC as PASS.
+
 ## `status` reports INCOMPLETE
 
 ```bash
@@ -72,4 +119,3 @@ cadence, restart semantics or scientific sampling to reduce cost.
 Include the code commit, relevant software versions, stage, task ID and a short
 sanitized error excerpt. Do not publish raw results, trajectories, full site files,
 private paths or credentials. Use synthetic fixtures for code regressions.
-

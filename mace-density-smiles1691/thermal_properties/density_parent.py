@@ -8,6 +8,7 @@ pass the unchanged transition policy before its density branch may start.
 from __future__ import annotations
 
 import csv
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
@@ -22,6 +23,10 @@ _KEYS = {
     "run_root", "run_id", "replica_id", "run_spec_sha256",
     "stage_manifest_sha256", "restart_sha256", "expected_step",
 }
+_OPTIONAL_KEYS = {"smiles_evidence", "stage_relative_path"}
+_CATALOG_SHA256 = "e7bb299e19f2d4b1d738c6b53e1b8abdf8445a7c21ca971b136c404685aea92a"
+_TRANSITION_DIRECTORIES = ("mace_transition_npt", "mace_transition_npt_sampling_0001",
+                           "mace_transition_npt_sampling_0002")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 # The fixed selection in pilots/render_density_parallel15_20260902.py plus
@@ -98,12 +103,154 @@ def _equal(left: object, right: object, field: str) -> None:
         _fail(f"{field} mismatch")
 
 
+def _normalize_record(value: object, field: str) -> dict[str, Any]:
+    record = dict(_mapping(value, field))
+    if set(record) != {"path", "sha256", "bytes"}:
+        _fail(f"{field} must contain exactly path, sha256, bytes")
+    _absolute_path(record["path"], field + ".path")
+    if not isinstance(record["sha256"], str) or not _SHA256.fullmatch(record["sha256"]):
+        _fail(f"{field}.sha256 must be a lowercase SHA256")
+    _integer(record["bytes"], field + ".bytes", positive=True)
+    return record
+
+
+def catalog_smiles_identity(task: Mapping[str, Any]) -> dict[str, str]:
+    """Check an exact task/string pair against this release's immutable catalog."""
+    from polymer_batch.catalog import load_catalog
+
+    catalog = Path(__file__).resolve().parents[1] / "inputs" / "smiles.csv"
+    if _file(catalog)["sha256"] != _CATALOG_SHA256:
+        _fail("public SMILES catalog SHA256 mismatch")
+    try:
+        rows = load_catalog(catalog)
+    except (OSError, ValueError) as exc:
+        _fail(f"invalid public SMILES catalog: {exc}")
+    matches = [row for row in rows if row["task_id"] == task.get("task_id")]
+    if len(matches) != 1:
+        _fail("task_id is not in the public SMILES catalog")
+    for field in ("task_id", "smiles", "smiles_sha256"):
+        _equal(task.get(field), matches[0][field], "catalog " + field)
+    return dict(matches[0])
+
+
+def _ended(value: object, field: str) -> None:
+    if not isinstance(value, str):
+        _fail(f"{field} is missing; parent may still be active")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        _fail(f"{field} is invalid")
+    if parsed.tzinfo is None:
+        _fail(f"{field} must include a timezone")
+
+
+def smiles_native_run_id(request: Mapping[str, Any], request_path: Path) -> str:
+    """Bind a continuation's run identity to its distinct immutable request."""
+    run_id = str(request["task_id"]) + "_" + str(request["attempt_id"])
+    if request.get("density_parent_restart") is not None:
+        run_id += "_continue_" + _file(request_path)["sha256"][:16]
+    return run_id
+
+
+def _verify_smiles_evidence(selector: Mapping[str, Any]) -> tuple[dict, dict, dict]:
+    """Authenticate the batch-to-native-run link before accepting an S task."""
+    from polymer_batch.catalog import task_seed
+    from .snapshot_contract import load_snapshot_contract, SnapshotContractError
+
+    evidence = selector["smiles_evidence"]
+    files = {}
+    documents = {}
+    for key in ("request", "receipt", "prepared"):
+        record = evidence[key]
+        actual = _file(Path(record["path"]))
+        _equal(actual, record, "SMILES evidence " + key)
+        files["smiles_" + key] = actual
+        documents[key] = _load(Path(record["path"]))
+    request, receipt, prepared = (documents[key] for key in ("request", "receipt", "prepared"))
+    task = catalog_smiles_identity(request)
+    attempt = _absolute_path(request.get("attempt_root"), "request.attempt_root")
+    if not re.fullmatch(r"attempt_[0-9]{4,}", attempt.name):
+        _fail("SMILES parent attempt basename is invalid")
+    if request.get("schema_version") != "polymer-smiles-task/v1":
+        _fail("unsupported SMILES parent request schema")
+    if request.get("seed") != task_seed(task["smiles_sha256"]):
+        _fail("SMILES parent seed does not match catalog identity")
+    for key, path in (("request", attempt / "request.json"),
+                      ("receipt", attempt / "receipt.json"),
+                      ("prepared", attempt / "prep" / "prepared.json")):
+        if evidence[key]["path"] != str(path):
+            _fail("SMILES evidence path does not belong to the declared attempt: " + key)
+    if request.get("prepared_manifest_path") != str(attempt / "prep" / "prepared.json"):
+        _fail("SMILES parent prepared manifest path mismatch")
+    if receipt.get("schema_version") != "polymer-smiles-attempt-receipt/v1":
+        _fail("unsupported SMILES parent receipt schema")
+    for document in (request, receipt):
+        if document.get("attempt_id") != attempt.name or document.get("attempt_root") != str(attempt):
+            _fail("SMILES parent attempt identity mismatch")
+        for field, value in task.items():
+            _equal(document.get(field), value, "SMILES parent " + field)
+    if receipt.get("status") not in {
+        "FAILED", "COMPLETE_QC_FAIL", "COMPLETE_QC_PASS", "TRANSITION_NOT_CONVERGED",
+        "NEEDS_MORE_SAMPLING", "SAMPLING_BUDGET_EXHAUSTED", "SAMPLING_QC_FAILED",
+    }:
+        _fail("SMILES parent receipt is not terminal")
+    _ended(receipt.get("ended_at"), "receipt.ended_at")
+    stages = receipt.get("stages")
+    if not isinstance(stages, list) or not stages:
+        _fail("SMILES parent receipt lacks terminated stages")
+    for index, stage in enumerate(stages):
+        stage = _mapping(stage, "receipt stage")
+        _ended(stage.get("ended_at"), f"receipt.stages[{index}].ended_at")
+        if type(stage.get("returncode")) is not int:
+            _fail("SMILES parent has an active or unconfirmed child process")
+    run_id = smiles_native_run_id(request, attempt / "request.json")
+    root = Path(selector["run_root"])
+    expected_root = attempt / "density" / "native_runs" / run_id
+    if selector["run_id"] != run_id or root not in {expected_root, expected_root.with_name(run_id + ".incomplete")}:
+        _fail("SMILES parent native run does not belong to its batch attempt")
+    artifacts = _mapping(receipt.get("artifacts"), "receipt artifacts")
+    for key in ("request", "prepared"):
+        _equal(artifacts.get(key), evidence[key], "receipt artifact " + key)
+    for field in ("task_id", "smiles_sha256"):
+        _equal(prepared.get(field), task[field], "prepared " + field)
+    if prepared.get("execution_status") not in (None, "COMPLETE"):
+        _fail("SMILES parent preparation is incomplete")
+    provenance = _mapping(prepared.get("preparation_provenance"), "preparation_provenance")
+    _equal(provenance.get("original_smiles"), task["smiles"], "prepared original SMILES")
+    _equal(provenance.get("smiles_sha256"), task["smiles_sha256"], "prepared SMILES hash")
+    input_paths = {}
+    for key in ("input_data", "snapshot_metadata"):
+        path = _absolute_path(prepared.get(key), "prepared." + key, file=True)
+        if attempt not in path.parents:
+            _fail("prepared artifact escapes the parent attempt")
+        record = _file(path)
+        _equal(artifacts.get(key), record, "receipt artifact " + key)
+        files["smiles_" + key] = record
+        input_paths[key] = path
+    try:
+        contract = load_snapshot_contract(snapshot_path=input_paths["input_data"],
+                                         metadata_path=input_paths["snapshot_metadata"],
+                                         expected_class="CLASSICAL_EQ2")
+    except SnapshotContractError as exc:
+        _fail(f"SMILES parent snapshot contract: {exc}")
+    if contract.source_method != "RADONPY_EQ21":
+        _fail("SMILES parent snapshot must retain RADONPY_EQ21 provenance")
+    if (prepared.get("mace_elements") is None
+            or len(prepared["mace_elements"]) != contract.atom_type_count
+            or set(prepared["mace_elements"]) != set(contract.element_counts)):
+        _fail("SMILES prepared element mapping disagrees with snapshot")
+    identity = {**task, "catalog_sha256": _CATALOG_SHA256,
+                "snapshot_sha256": contract.snapshot_sha256,
+                "metadata_sha256": contract.metadata_sha256}
+    return identity, files, contract.to_dict()
+
+
 def normalize_density_parent(value: Mapping[str, Any]) -> dict[str, Any]:
     """Validate the explicit parent selector, without creating output."""
     parent = dict(_mapping(value, "selector"))
-    if set(parent) != _KEYS:
+    if not _KEYS.issubset(parent) or set(parent) - _KEYS - _OPTIONAL_KEYS:
         _fail(f"selector fields mismatch: missing={sorted(_KEYS - set(parent))}, "
-              f"extra={sorted(map(str, set(parent) - _KEYS))}")
+              f"extra={sorted(map(str, set(parent) - _KEYS - _OPTIONAL_KEYS))}")
     root = _absolute_path(parent["run_root"], "run_root")
     for field in ("run_id", "replica_id"):
         if not isinstance(parent[field], str) or not _IDENTIFIER.fullmatch(parent[field]):
@@ -114,8 +261,67 @@ def normalize_density_parent(value: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(parent[field], str) or not _SHA256.fullmatch(parent[field]):
             _fail(f"{field} must be a lowercase SHA256")
     _integer(parent["expected_step"], "expected_step", positive=True)
+    if "stage_relative_path" in parent:
+        allowed = {f"replicas/{parent['replica_id']}/{name}" for name in _TRANSITION_DIRECTORIES}
+        if parent["stage_relative_path"] not in allowed or "smiles_evidence" not in parent:
+            _fail("stage_relative_path is not an authenticated SMILES transition stage")
+    if "smiles_evidence" in parent:
+        evidence = _mapping(parent["smiles_evidence"], "smiles_evidence")
+        if set(evidence) != {"request", "receipt", "prepared"}:
+            _fail("smiles_evidence requires exactly request, receipt, prepared")
+        parent["smiles_evidence"] = {key: _normalize_record(value, "smiles_evidence." + key)
+                                     for key, value in evidence.items()}
     parent["run_root"] = str(root)
     return parent
+
+
+def _sampling_cumulative(root: Path, stage_spec: Mapping[str, Any],
+                         source_files: dict, prior_ps: Decimal, endpoint: int,
+                         prior: Mapping[str, Any] | None) -> Decimal:
+    from .sampling_continuation import verify_sampling_history
+
+    sampling = _mapping(stage_spec["sampling_window"], "parent sampling_window")
+    index = _integer(sampling.get("index"), "parent sampling index")
+    if index > 2:
+        _fail("parent transition sampling index exceeds the bounded budget")
+    stage_id = stage_spec["stage_id"]
+    records = []
+    for number in range(index + 1):
+        path = root / "sampling_history" / stage_id / f"window_{number:04d}.json"
+        record = _file(path)
+        source_files[f"sampling_window_{number:04d}"] = record
+        records.append({**record, "path": path.relative_to(root).as_posix()})
+    if sampling.get("previous_window_record") != (records[-2] if index else None):
+        _fail("parent stage does not bind the preceding sampling history")
+    try:
+        windows = verify_sampling_history(root, records, expected_stage_id=stage_id)
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+        _fail(f"parent sampling history validation failed: {exc}")
+    last = windows[-1]
+    for field, source in (("run_spec", "run_spec"), ("stage_spec", "stage_spec"),
+                          ("stage_manifest", "stage_manifest"), ("qc", "qc"),
+                          ("checkpoint", "restart")):
+        expected = dict(source_files[source])
+        expected["path"] = Path(expected["path"]).relative_to(root).as_posix()
+        _equal(last.get(field), expected, "selected sampling " + field)
+    if last.get("end_step") != endpoint:
+        _fail("sampling endpoint does not match selected parent endpoint")
+    if prior is not None:
+        first_spec = _load(root / windows[0]["stage_spec"]["path"])
+        if (first_spec.get("start_step") != prior["start_step"]
+                or windows[0]["input_checkpoint"]["sha256"] != prior["source_files"]["restart"]["sha256"]
+                or windows[0]["input_checkpoint"]["bytes"] != prior["source_files"]["restart"]["bytes"]):
+            _fail("first sampling window does not start from the authenticated parent checkpoint")
+    cumulative = prior_ps
+    for number, window in enumerate(windows):
+        if _number(window.get("initial_cumulative_ps"), "sampling initial budget") != prior_ps:
+            _fail("sampling baseline differs from authenticated parent lineage")
+        cumulative += _number(window.get("duration_ps"), "sampling duration")
+        if _number(window.get("cumulative_ps"), "sampling cumulative budget") != cumulative:
+            _fail("sampling cumulative budget differs from authenticated durations")
+        for field in ("run_spec", "stage_spec", "stage_manifest", "qc", "checkpoint", "input_checkpoint"):
+            source_files[f"sampling_{number:04d}_{field}"] = _file(root / window[field]["path"])
+    return cumulative
 
 
 def verify_density_parent(
@@ -124,6 +330,8 @@ def verify_density_parent(
     execution_identity: Mapping[str, Any],
     run_id: str | None = None,
     run_root: str | Path | None = None,
+    *,
+    _seen: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Verify pinned parent core evidence and its compatibility with a new run.
 
@@ -133,6 +341,9 @@ def verify_density_parent(
     """
     selector = normalize_density_parent(parent)
     root = Path(selector["run_root"])
+    if str(root) in _seen or len(_seen) >= 4:
+        _fail("parent lineage is cyclic or exceeds the bounded transition budget")
+    _seen = _seen | {str(root)}
     if not root.is_dir():
         _fail(f"run_root is not a directory: {root}")
     if run_id == selector["run_id"]:
@@ -155,7 +366,7 @@ def verify_density_parent(
         if reuse.get("search_roots") or reuse.get("selected_state_point_provenance"):
             _fail("parent intake cannot be combined with cross-run result reuse")
 
-    stage_root = root / "replicas" / selector["replica_id"] / "mace_transition_npt"
+    stage_root = root / selector.get("stage_relative_path", f"replicas/{selector['replica_id']}/mace_transition_npt")
     paths = {
         "run_spec": root / "spec" / "run_spec.json",
         "stage_spec": stage_root / "stage_spec.json",
@@ -223,11 +434,28 @@ def verify_density_parent(
         if field not in old_system or field not in new_system:
             _fail(f"system lacks {field}")
         _equal(old_system[field], new_system[field], f"system.{field}")
+    smiles_identity = None
+    smiles_snapshot = None
+    if "smiles_evidence" in selector:
+        smiles_identity, evidence_files, smiles_snapshot = _verify_smiles_evidence(selector)
+        _equal(old_system.get("polymer_id"), smiles_identity["task_id"], "SMILES parent system polymer_id")
+        request = _load(Path(evidence_files["smiles_request"]["path"]))
+        _equal(parent_spec.get("density_parent_restart"), request.get("density_parent_restart"),
+               "SMILES request/native parent selector")
+        replica_root = root / "replicas" / selector["replica_id"]
+        directories = [replica_root / name for name in _TRANSITION_DIRECTORIES]
+        existing = [path for path in directories if path.exists()]
+        if (not existing or existing != directories[:len(existing)]
+                or stage_root != existing[-1]
+                or any(path.name.startswith("mace_transition_npt") and path not in directories
+                       for path in replica_root.iterdir())):
+            _fail("SMILES parent selector must use the latest contiguous transition endpoint")
+        source_files.update(evidence_files)
     if (parent_spec.get("thermal_mode") != "density"
-            or old_system.get("polymer_id") not in _ALLOWED_POLYMER_IDS
+            or (old_system.get("polymer_id") not in _ALLOWED_POLYMER_IDS and smiles_identity is None)
             or old_model.get("head") != "omol" or old_model.get("dtype") != "float32"):
         _fail("parent intake is limited to the fixed 15-polymer selection plus P020001 "
-              "omol float32 density pilots")
+              "or authenticated catalog SMILES omol float32 density pilots")
     for system, model in ((old_system, old_model), (new_system, new_model)):
         for source, target in (("mace_model", "path"), ("mace_head", "head"), ("mace_dtype", "dtype")):
             _equal(system.get(source), model.get(target), f"system/model {source}")
@@ -241,6 +469,11 @@ def verify_density_parent(
         if field not in old_snapshot or field not in new_snapshot:
             _fail(f"snapshot lacks {field}")
         _equal(old_snapshot[field], new_snapshot[field], f"snapshot.{field}")
+        if smiles_snapshot is not None:
+            _equal(old_snapshot[field], smiles_snapshot[field], "SMILES original snapshot." + field)
+    if smiles_snapshot is not None:
+        for field in ("snapshot_bytes", "metadata_bytes", "source_method"):
+            _equal(old_snapshot.get(field), smiles_snapshot[field], "SMILES original snapshot." + field)
     for field in ("engine", "initialize"):
         _mapping(parent_spec.get(field), f"parent {field}")
         _mapping(resolved.get(field), f"current {field}")
@@ -309,12 +542,30 @@ def verify_density_parent(
     merge_production = _mapping(merge.get("production"), "parent production merge")
     if merge_production.get("last_step") != endpoint or merge_production.get("sha256") != source_files["production_samples"]["sha256"]:
         _fail("parent merged production endpoint/hash mismatch")
+    prior_ps = Decimal("0")
+    prior = None
+    if parent_spec.get("density_parent_restart") is not None:
+        prior = verify_density_parent(parent_spec["density_parent_restart"], parent_spec,
+                                      parent_identity, run_id=selector["run_id"],
+                                      run_root=root, _seen=_seen)
+        prior_ps = _number(prior["cumulative_transition_ps"], "prior cumulative transition")
+        if smiles_identity is not None:
+            _equal(prior.get("smiles_identity"), smiles_identity, "SMILES parent lineage")
+            _equal(parent_identity.get("density_parent_restart"), prior,
+                   "authenticated previous parent intake identity")
+        if start != prior["start_step"] and "sampling_window" not in stage_spec:
+            _fail("parent transition does not start at authenticated prior endpoint")
+    cumulative = prior_ps + (equil + prod) * dt
+    if "sampling_window" in stage_spec:
+        cumulative = _sampling_cumulative(root, stage_spec, source_files, prior_ps, endpoint, prior)
+    if smiles_identity is not None and (cumulative <= 0 or cumulative > Decimal("100")):
+        _fail("SMILES cumulative transition exceeds the 100 ps bound")
     # Recheck bytes after interpretation so a source change cannot be copied as
     # though it were the evidence we just validated.
-    for key, path in paths.items():
-        if _file(path) != source_files[key]:
+    for key, record in source_files.items():
+        if _file(Path(record["path"])) != record:
             _fail(f"parent artifact changed during validation: {key}")
-    return {
+    result = {
         "schema_version": "thermal-properties-density-parent-intake/v1",
         "parent_run_id": selector["run_id"],
         "parent_replica_id": selector["replica_id"],
@@ -325,6 +576,7 @@ def verify_density_parent(
         "parent_resolved_spec_sha256": resolved_hash,
         "start_step": endpoint,
         "start_time_ps": float(endpoint * dt),
+        "cumulative_transition_ps": float(cumulative),
         "source_files": source_files,
         "model": dict(old_model),
         "snapshot_lineage": {field: old_snapshot[field] for field in snapshot_fields},
@@ -333,3 +585,60 @@ def verify_density_parent(
         "parent_is_qualified_density": False,
         "old_qc_modified": False,
     }
+    if smiles_identity is not None:
+        result["smiles_identity"] = smiles_identity
+    return result
+
+
+def smiles_parent_selector(attempt: Path, task: Mapping[str, Any]) -> dict[str, Any]:
+    """Build and validate a pinned selector without preparing or executing MD."""
+    attempt = _absolute_path(str(attempt), "parent attempt")
+    identity = catalog_smiles_identity(task)
+    request = _load(attempt / "request.json")
+    for field, value in identity.items():
+        _equal(request.get(field), value, "requested parent " + field)
+    run_id = smiles_native_run_id(request, attempt / "request.json")
+    base = attempt / "density" / "native_runs"
+    roots = [base / run_id, base / (run_id + ".incomplete")]
+    present = [root for root in roots if root.exists()]
+    if len(present) != 1:
+        _fail("SMILES attempt must contain exactly one expected native run")
+    root = present[0]
+    spec_path = root / "spec" / "run_spec.json"
+    spec = _load(spec_path)
+    replicas = spec.get("replicas")
+    if not isinstance(replicas, list) or len(replicas) != 1:
+        _fail("SMILES parent requires exactly one replica")
+    replica = _mapping(replicas[0], "parent replica").get("replica_id")
+    if not isinstance(replica, str) or not _IDENTIFIER.fullmatch(replica):
+        _fail("SMILES parent replica is invalid")
+    stage_dirs = [root / "replicas" / replica / name for name in _TRANSITION_DIRECTORIES]
+    existing = [stage for stage in stage_dirs if stage.exists()]
+    if not existing or existing != stage_dirs[:len(existing)]:
+        _fail("SMILES parent transition windows are missing or noncontiguous")
+    stage = existing[-1]
+    stage_spec = _load(stage / "stage_spec.json")
+    endpoint = sum(_integer(stage_spec.get(field), "parent " + field)
+                   for field in ("start_step", "equilibration_steps", "production_steps"))
+    selector = {
+        "run_root": str(root), "run_id": run_id, "replica_id": replica,
+        "run_spec_sha256": _file(spec_path)["sha256"],
+        "stage_manifest_sha256": _file(stage / "stage_manifest.json")["sha256"],
+        "restart_sha256": _file(stage / "restart.final")["sha256"],
+        "expected_step": endpoint,
+        "stage_relative_path": stage.relative_to(root).as_posix(),
+        "smiles_evidence": {key: _file(path) for key, path in (
+            ("request", attempt / "request.json"), ("receipt", attempt / "receipt.json"),
+            ("prepared", attempt / "prep" / "prepared.json"))},
+    }
+    verified = verify_density_parent(selector, spec, _mapping(spec.get("execution_identity"), "parent execution_identity"))
+    from .sampling_continuation import _qc_failure_checks
+    try:
+        failed = _qc_failure_checks(stage, stage_spec)
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+        _fail(f"parent QC cannot authorize sampling continuation: {exc}")
+    if failed != ["minimum_effective_samples"]:
+        _fail("SMILES continuation requires minimum_effective_samples as the sole failed check")
+    if verified["cumulative_transition_ps"] >= 100:
+        _fail("SMILES parent has exhausted the 100 ps transition budget")
+    return selector

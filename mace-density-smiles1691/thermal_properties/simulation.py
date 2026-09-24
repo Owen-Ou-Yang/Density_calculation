@@ -96,6 +96,7 @@ ORCHESTRATION_SOURCE_FILES = (
     "planning.py",
     "provenance.py",
     "reuse.py",
+    "sampling_continuation.py",
     "simulation.py",
     "snapshot_contract.py",
     "submission_claim.py",
@@ -137,6 +138,21 @@ class ThermalSimulationError(RuntimeError):
 
 class StageIntegrityError(ThermalSimulationError):
     """A supposedly reusable stage/checkpoint does not match its manifest."""
+
+
+class SamplingNotConvergedError(ThermalSimulationError):
+    """Completed MD windows stopped at an authenticated scientific gate."""
+
+    def __init__(self, code: str, record_path: Path):
+        self.code = code
+        self.record_path = record_path.resolve()
+        super().__init__(f"{code}: {self.record_path}")
+
+
+def verify_sampling_outcome(path: str | Path) -> dict[str, Any]:
+    from .sampling_continuation import verify_sampling_outcome as verify
+
+    return verify(path)
 
 
 class DuplicateSampleStepError(StageIntegrityError):
@@ -323,7 +339,7 @@ def expand_thermal_config(payload: Mapping[str, Any]) -> dict[str, Any]:
             "scheduler",
             mode,
         },
-        optional={"reuse", "density_parent_restart"},
+        optional={"reuse", "density_parent_restart", "sampling_continuation"},
     )
     if payload.get("quality_tier") not in {"pilot", "production"}:
         raise ThermalConfigError("quality_tier must be 'pilot' or 'production'")
@@ -371,6 +387,19 @@ def expand_thermal_config(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise ThermalConfigError("output_root must be a nonempty string")
 
     parent_restart = None
+    sampling_continuation = None
+    if "sampling_continuation" in payload:
+        if (mode != "density" or run_class != "PILOT" or scientific_eligible
+                or reuse_eligible or "reuse" in payload):
+            raise ThermalConfigError("sampling_continuation requires nonreusable density PILOT")
+        sampling = _require_mapping(payload["sampling_continuation"], "sampling_continuation")
+        expected_sampling = {"increment_ps": 25.0, "max_transition_ps": 100.0,
+                             "max_density_ps": 100.0}
+        _validate_object_keys(sampling, "sampling_continuation", required=set(expected_sampling))
+        for field, expected in expected_sampling.items():
+            if _decimal(sampling[field], f"sampling_continuation.{field}") != Decimal(str(expected)):
+                raise ThermalConfigError(f"sampling_continuation.{field} must be {expected}")
+        sampling_continuation = expected_sampling
     if "density_parent_restart" in payload:
         if mode != "density" or run_class != "PILOT" or "reuse" in payload:
             raise ThermalConfigError(
@@ -1042,6 +1071,14 @@ def expand_thermal_config(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
     if reuse_config is not None:
         resolved["reuse"] = reuse_config
+    if sampling_continuation is not None:
+        expected_transition_ps = 25 if parent_restart is not None else 50
+        if (_decimal(initialize["mace_transition_npt_ps"], "transition duration")
+                != Decimal(expected_transition_ps)
+                or _decimal(npt["production_ps"], "production duration") != Decimal(25)
+                or _decimal(payload["density"]["temperature_k"], "density temperature") != Decimal(300)):
+            raise ThermalConfigError("sampling_continuation requires initial 50 ps transition (25 ps with parent), 25 ps production at 300 K")
+        resolved["sampling_continuation"] = sampling_continuation
     if parent_restart is not None:
         resolved["density_parent_restart"] = parent_restart
         # Intake is provenance, not a newly executed initialization stage.
@@ -2380,11 +2417,25 @@ def execute_npt_stage(
         maximum_step_by_segment=prod_cutoffs,
         expected_step_stride=expected_stride,
     )
+    qc_production = canonical_prod
+    cumulative_production = None
+    sampling_sources = stage_spec.get("sampling_production_sources")
+    if sampling_sources is not None:
+        if (stage_spec.get("sampling_window", {}).get("role") != "density"
+                or not isinstance(sampling_sources, list) or not sampling_sources):
+            raise StageIntegrityError("cumulative sampling sources are invalid")
+        sampling_root = (stage / stage_spec["sampling_run_root_relative"]).resolve()
+        verified_sources = [verify_artifact_record(record, relative_to=sampling_root)
+                            for record in sampling_sources]
+        cumulative_production = stage / "samples" / "production.cumulative.csv"
+        merge_csv_segments([*verified_sources, canonical_prod], cumulative_production,
+                           expected_step_stride=expected_stride)
+        qc_production = cumulative_production
     qc_status = "NOT_EVALUATED"
     qc_artifact: Path | None = None
     if qc_evaluator is not None:
         try:
-            qc_result = qc_evaluator(canonical_equil, canonical_prod)
+            qc_result = qc_evaluator(canonical_equil, qc_production)
             if isinstance(qc_result, Mapping):
                 qc_payload = dict(qc_result)
                 qc_status = str(qc_payload.get("status", "")).upper()
@@ -2440,6 +2491,8 @@ def execute_npt_stage(
         artifact_paths.append(equilibration_final_restart)
     if qc_artifact is not None:
         artifact_paths.append(qc_artifact)
+    if cumulative_production is not None:
+        artifact_paths.append(cumulative_production)
     artifacts = [artifact_record(path, relative_to=stage) for path in artifact_paths]
     manifest = {
         "schema_version": STAGE_MANIFEST_SCHEMA,
@@ -2497,6 +2550,10 @@ def finalize_run_directory(
         raise ThermalSimulationError(f"incomplete run directory is missing: {incomplete}")
     if not stage_results or any(item.execution_status != "COMPLETE" for item in stage_results):
         raise ThermalSimulationError("cannot finalize until every planned stage completed")
+    if "sampling_continuation" in run_manifest or "sampling_history" in run_manifest:
+        from .sampling_continuation import verify_run_sampling_history
+
+        verify_run_sampling_history(incomplete, run_manifest)
     declared_state_points = run_manifest.get("state_points")
     if not isinstance(declared_state_points, list) or not declared_state_points:
         raise ThermalSimulationError(
@@ -2787,8 +2844,11 @@ def finalize_run_directory(
         expected_thermo_path, expected_thermo_record = expected_thermo_by_stage[
             result.stage_id
         ]
+        selected_spec = _read_json(result.stage_dir / "stage_spec.json")
+        selected_production_name = ("production.cumulative.csv"
+            if selected_spec.get("sampling_production_sources") else "production.csv")
         canonical_production_path = (
-            result.stage_dir / "samples" / "production.csv"
+            result.stage_dir / "samples" / selected_production_name
         ).resolve()
         if expected_thermo_path.resolve() != canonical_production_path:
             raise StageIntegrityError(
@@ -4449,6 +4509,18 @@ def _execute_thermal_campaign_impl(
     sample_every_steps = ps_to_steps(
         npt["sample_interval_ps"], engine["dt_ps"]
     )
+    sampling_histories: dict[str, list[dict[str, Any]]] = {}
+
+    def sampling_evaluator(spec):
+        if qc_evaluator_factory is None:
+            return _default_statepoint_qc_evaluator(resolved, spec)
+        injected = qc_evaluator_factory(spec)
+        if injected is None:
+            raise ThermalSimulationError("qc_evaluator_factory returned no evaluator")
+        return _bind_statepoint_qc_evaluator(
+            injected, _statepoint_qc_policy_requirements(spec),
+            qc_implementation_sha256=density_qc_implementation_sha256(resolved["execution_identity"]),
+        )
     thermo_every_steps = ps_to_steps(
         npt["thermo_interval_ps"], engine["dt_ps"]
     )
@@ -4587,14 +4659,22 @@ def _execute_thermal_campaign_impl(
                 resolved, transition_spec
             )
         _verify_execution_identity(resolved, input_root)
-        transition_result = execute_npt_stage(
-            stage_dir=transition_dir,
-            stage_spec=transition_spec,
-            command=npt_command,
-            environment=transition_environment,
-            process_runner=process_runner,
-            qc_evaluator=transition_evaluator,
-        )
+        if resolved.get("sampling_continuation") is not None:
+            from .sampling_continuation import execute_sampling_stage
+
+            transition_result, transition_spec, transition_history = execute_sampling_stage(
+                resolved=resolved, run_root=incomplete, stage_dir=transition_dir,
+                stage_spec=transition_spec, command=npt_command, environment=transition_environment,
+                process_runner=process_runner, evaluator_factory=sampling_evaluator, input_root=input_root,
+            )
+            transition_dir = transition_result.stage_dir
+            sampling_histories[transition_result.stage_id] = transition_history
+        else:
+            transition_result = execute_npt_stage(
+                stage_dir=transition_dir, stage_spec=transition_spec, command=npt_command,
+                environment=transition_environment, process_runner=process_runner,
+                qc_evaluator=transition_evaluator,
+            )
         initialization_results.append(transition_result)
         transition_qc_passed = transition_result.qc_status == "PASS"
         transition_qc_nonblocking = (
@@ -4642,7 +4722,7 @@ def _execute_thermal_campaign_impl(
                 "the property branch was not started"
             )
         predecessor = transition_dir / "restart.final"
-        next_stage_start_step = transition_start_step + transition_steps
+        next_stage_start_step = int(transition_spec["start_step"]) + int(transition_spec["production_steps"])
         history_by_replica[replica_id] = [
             sha256_file(initialize_restart),
             sha256_file(predecessor),
@@ -4750,16 +4830,29 @@ def _execute_thermal_campaign_impl(
                 )
             else:
                 evaluator = _default_statepoint_qc_evaluator(resolved, stage_spec)
-            result = execute_npt_stage(
-                stage_dir=stage_dir,
-                stage_spec=stage_spec,
-                command=npt_command,
-                environment=stage_environment,
-                process_runner=process_runner,
-                qc_evaluator=evaluator,
-            )
+            if resolved.get("sampling_continuation") is not None:
+                from .sampling_continuation import execute_sampling_stage
+
+                result, stage_spec, state_history = execute_sampling_stage(
+                    resolved=resolved, run_root=incomplete, stage_dir=stage_dir,
+                    stage_spec=stage_spec, command=npt_command, environment=stage_environment,
+                    process_runner=process_runner, evaluator_factory=sampling_evaluator, input_root=input_root,
+                )
+                stage_dir = result.stage_dir
+                sampling_histories[result.stage_id] = state_history
+                state_ramp_steps = int(stage_spec["ramp_steps"])
+                state_equil_steps = int(stage_spec["constant_equilibration_steps"])
+                state_preproduction_steps = int(stage_spec["equilibration_steps"])
+                state_prod_steps = int(stage_spec["production_steps"])
+            else:
+                result = execute_npt_stage(
+                    stage_dir=stage_dir, stage_spec=stage_spec, command=npt_command,
+                    environment=stage_environment, process_runner=process_runner, qc_evaluator=evaluator,
+                )
             state_results.append(result)
-            production = stage_dir / "samples" / "production.csv"
+            production = stage_dir / "samples" / (
+                "production.cumulative.csv" if stage_spec.get("sampling_production_sources") else "production.csv"
+            )
             production_artifact = artifact_record(production, relative_to=incomplete)
             production_artifact.update(
                 {"phase": "production", "role": "thermo_samples"}
@@ -4843,19 +4936,29 @@ def _execute_thermal_campaign_impl(
                 "run_class": resolved["run_class"],
                 "scientific_eligible": resolved["scientific_eligible"],
                 "reuse_eligible": resolved["reuse_eligible"],
-                "temperature_ramp_start_K": item[
+                "temperature_ramp_start_K": stage_spec[
                     "temperature_ramp_start_k"
                 ],
-                "temperature_ramp_end_K": item["temperature_ramp_end_k"],
+                "temperature_ramp_end_K": stage_spec["temperature_ramp_end_k"],
                 "ramp_steps": state_ramp_steps,
                 "constant_equilibration_steps": state_equil_steps,
                 "production_steps": state_prod_steps,
-                "phase_durations_ps": dict(item["phase_durations_ps"]),
+                "phase_durations_ps": {
+                    "ramp_ps": float(state_ramp_steps) * float(engine["dt_ps"]),
+                    "equilibration_ps": float(state_equil_steps) * float(engine["dt_ps"]),
+                    "production_ps": float(state_prod_steps) * float(engine["dt_ps"]),
+                } if resolved.get("sampling_continuation") is not None else dict(item["phase_durations_ps"]),
                 "artifacts": {
                     "thermo_samples": production_artifact,
                     "state_point_qc": qc_artifact,
                 },
             }
+            if resolved.get("sampling_continuation") is not None:
+                state_record["analyzed_production_ps"] = sum(
+                    _read_json(verify_artifact_record(record, relative_to=incomplete))["duration_ps"]
+                    for record in sampling_histories[result.stage_id]
+                )
+                state_record["sampling_analysis"] = "CUMULATIVE_POST_EQUILIBRATION_PRODUCTION"
             if density_reuse_key is not None:
                 density_qc_results = [
                     item
@@ -4925,7 +5028,7 @@ def _execute_thermal_campaign_impl(
                 )
             state_records.append(state_record)
             predecessor = stage_dir / "restart.final"
-            next_stage_start_step += state_preproduction_steps + state_prod_steps
+            next_stage_start_step = int(stage_spec["start_step"]) + state_preproduction_steps + state_prod_steps
             history_by_replica[replica_id].append(sha256_file(predecessor))
 
     # Pin the final QC/finalization decision to the same model, executable,
@@ -5007,6 +5110,9 @@ def _execute_thermal_campaign_impl(
             "copied_artifacts": parent_input_records,
             "interpretation": "UNQUALIFIED_PARENT_NEW_TRANSITION_QC_REQUIRED",
         }
+    if resolved.get("sampling_continuation") is not None:
+        run_manifest["sampling_continuation"] = resolved["sampling_continuation"]
+        run_manifest["sampling_history"] = sampling_histories
     if output_ownership is not None:
         run_manifest["submission_claim"] = {
             "claim_uuid": output_ownership.claim_uuid,

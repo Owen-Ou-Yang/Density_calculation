@@ -45,6 +45,11 @@
   ],
   "reuse_eligible": false,
   "run_class": "PILOT",
+  "sampling_continuation": {
+    "increment_ps": 25.0,
+    "max_transition_ps": 100.0,
+    "max_density_ps": 100.0
+  },
   "scheduler": {
     "qsub_args": [],
     "submit_mode": "print"

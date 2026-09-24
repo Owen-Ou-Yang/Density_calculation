@@ -1,5 +1,43 @@
 # Changelog
 
+## Publication notes — 2026-09-24
+
+- Publish the bounded MACE sampling revision below after a fresh CPU test run:
+  273 tests and 29 subtests passed; the 64-file public-package check passed.
+- Clarify the CRC example resource request, allocated versus MACE-stage
+  GPU-hours, and the absence of a catalog-wide calibrated runtime estimate.
+- Preserve the real end-to-end qualification limitation. No scientific results,
+  trajectories, model weights or private site configuration are published.
+
+## Bounded density sampling continuation — 2026-09-23
+
+- Add `sampling_continuation` for density PILOT only: 25 ps increments,
+  a 100 ps transition cap and a separate 100 ps target-sampling cap.
+  Continue only when `minimum_effective_samples` is the sole rejected check;
+  preserve the transition/target thresholds of 10/20.
+- Keep the initial 305 K transition at 50 ps and the 300 K protocol at
+  0.1 ps ramp, 5 ps equilibration and 25 ps initial sampling. Transition uses
+  fresh, independently checked 25 ps extension windows. At 300 K, accumulate
+  post-equilibration samples for QC at 25/50/75/100 ps, adding only 25 ps of
+  new dynamics per extension. This is a prospective policy: prior QC records
+  and evidence remain immutable. No post-hoc trimming or full-trajectory
+  safety-gate change.
+- Add explicit single-task `--continue-density-from` planning and execution
+  from an eligible transition endpoint. New attempts verify and preserve
+  parent/input/request, snapshot and model identities, copy prepared inputs,
+  skip preparation/initialization, and retain window/restart/budget history.
+  The cross-attempt selector does not restore a terminal 300 K target branch.
+- Preserve `NEEDS_MORE_SAMPLING`, `SAMPLING_BUDGET_EXHAUSTED` and
+  `SAMPLING_QC_FAILED` as non-passing sampling outcomes. Runtime/OOM, nonfinite,
+  invalid-structure, temperature and other/mixed QC failures stop immediately.
+  No scheduler submission or resubmission is introduced.
+- Local verification: **273 tests and 29 subtests passed**, including real
+  fake-adapter subprocess recovery, sampling caps, cumulative-row integrity,
+  malformed receipts and immutable parent history. The public-package
+  integrity/disclosure check passed for 64 files and all 1,691 original strings.
+  Engineering coverage does not establish real CRC acceptance, a passing
+  density, experimental agreement or catalog-wide scientific qualification.
+
 ## Cluster collaboration interface — 2026-09-22
 
 - Add a standard-library offline `tools/cluster.py check/render` entrypoint,
